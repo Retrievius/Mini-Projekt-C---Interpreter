@@ -1,4 +1,5 @@
 # Person C – Interpreter & REPL
+Person: Linus Martinschledde
 
 Zeitraum: **02.01.26 – 20.01.26**
 Arbeitsaufwand: **1–3 h pro Tag**
