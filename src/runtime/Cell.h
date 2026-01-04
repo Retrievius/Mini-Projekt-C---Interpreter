@@ -1,0 +1,3 @@
+struct Cell {
+  Value value;
+};
