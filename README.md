@@ -49,7 +49,7 @@ Projektverlauf:
     02.01: -
     03.01: -
     04.01: 2 und 3 nachgeholt, Interpreter Grundgerüst erstellt
-    05.01:
+    05.01: Interpreter Skelett fertig
     06.01:
     07.01:
     08.01:
