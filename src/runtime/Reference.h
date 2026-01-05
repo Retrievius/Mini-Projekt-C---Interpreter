@@ -1,3 +1,0 @@
-struct Reference {
-  Cell* target;
-};
