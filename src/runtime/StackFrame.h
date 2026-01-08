@@ -8,5 +8,5 @@
 
 // Scope, locals bedeutet Name von Cell
 struct StackFrame {
-  std::unordered_map<std::string, Cell> locals;
+  std::unordered_map<std::string, Cell*> locals;
 };

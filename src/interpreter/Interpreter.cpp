@@ -40,15 +40,25 @@ void Interpreter::visit(BinaryExpr* e) {
   Value lhs = evalExpr(e->lhs);
   Value rhs = evalExpr(e->rhs);
 
-  // Berechnet lhs + rhs und speichert Ergebnis in currentValue
-  if (e->op == BinaryOp::Add) {
-    currentValue = Value::makeInt(lhs.intValue + rhs.intValue);
+  // Berechnet lhs +, -, *, / rhs und speichert Ergebnis in currentValue
+  switch (e->op) {
+    case BinaryOp::Add: currentValue = Value::makeInt(lhs.intValue + rhs.intValue); break;
+    case BinaryOp::Sub: currentValue = Value::makeInt(lhs.intValue - rhs.intValue); break;
+    case BinaryOp::Mul: currentValue = Value::makeInt(lhs.intValue * rhs.intValue); break;
+    case BinaryOp::Div: currentValue = Value::makeInt(lhs.intValue / rhs.intValue); break;
     return;
   }
-
   // Fehlermeldung bei nicht implementiertem Operator
   throw std::runtime_error("Unsupported binary operator");
 }
+
+//
+void Interpreter::visit(UnaryExpr* e) {
+  Value v = evalExpr(e->expr);
+  if (e->op == UnaryOp::Neg)
+    currentValue = Value::makeInt(-v.intValue);
+}
+
 
 // --------------------
 // Statements: verändern den Zustand
@@ -61,12 +71,12 @@ void Interpreter::execStmt(Stmt* stmt) {
 
 // Variablendeklaration: Neue Variable -> neue Cell
 void Interpreter::visit(VarDecl* decl) {
-  Cell cell;
+  Cell* cell = new Cell();
   // Initialisierung mit Ausdruck oder Default-Wert
   if (decl->initExpr) {
-    cell.value = evalExpr(decl->initExpr);
+    cell->value = evalExpr(decl->initExpr);
   } else {
-    cell.value = Value::makeInt(0); // Default (nur als Beispiel)
+    cell->value = Value::makeInt(0);
   }
   // Variable wird im aktuellen StackFrame unter ihrem Namen gespeichert
   frame().locals[decl->name] = cell;
@@ -112,8 +122,55 @@ void Interpreter::visit(WhileStmt* stmt) {
 
 // Return
 void Interpreter::visit(ReturnStmt* stmt) {
-  currentValue = stmt->expr ? evalExpr(stmt->expr) : Value::makeVoid();
-  throw currentValue; // ToDo später durch ReturnSignal ersetzen
+  Value v = stmt->expr ? evalExpr(stmt->expr) : Value::makeVoid();
+  throw ReturnSignal{v};
+}
+
+void Interpreter::visit(FunctionDecl* decl) {
+  functions[decl->name] = decl;
+}
+
+void Interpreter::visit(CallExpr* call) {
+  auto it = functions.find(call->functionName);
+  if (it == functions.end()) {
+    throw std::runtime_error("Unknown function: " + call->functionName);
+  }
+
+  FunctionDecl* func = it->second;
+
+  // 1. Argumente auswerten
+  std::vector<Value> argValues;
+  for (auto* arg : call->args) {
+    argValues.push_back(evalExpr(arg));
+  }
+
+  // 2. Neuer StackFrame
+  callStack.emplace_back();
+  StackFrame& newFrame = frame();
+
+  // 3. Parameter binden (ALS CELLS!)
+  for (size_t i = 0; i < func->params.size(); ++i) {
+    Cell* cell = new Cell();
+    cell->value = argValues[i];
+    newFrame.locals[func->params[i]] = cell;
+  }
+
+  // 4. Body ausführen + Return abfangen
+  try {
+    execStmt(func->body);
+    // Falls kein return:
+    currentValue = Value::makeVoid();
+  }
+  catch (ReturnSignal& r) {
+    currentValue = r.value;
+  }
+
+  // 5. StackFrame entfernen
+  callStack.pop_back();
+}
+
+void Interpreter::visit(ClassDecl* decl) {
+  classes[decl->name] = decl;
 }
 
 // --------------------
@@ -126,7 +183,7 @@ Cell* Interpreter::resolveVariable(const std::string& name) {
   for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
     auto found = it->locals.find(name);
     if (found != it->locals.end()) {
-      return &found->second;
+      return found->second;
     }
   }
   // fehler bei undefinierter Variable
