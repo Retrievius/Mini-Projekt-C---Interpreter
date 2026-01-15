@@ -40,17 +40,27 @@ void Interpreter::visit(BinaryExpr* e) {
   Value lhs = evalExpr(e->lhs);
   Value rhs = evalExpr(e->rhs);
 
-  // Berechnet lhs +, -, *, / rhs und speichert Ergebnis in currentValue
   switch (e->op) {
-    case BinaryExpr::BinaryOp::Add: currentValue = Value::makeInt(lhs.intValue + rhs.intValue); break;
-    case BinaryExpr::BinaryOp::Sub: currentValue = Value::makeInt(lhs.intValue - rhs.intValue); break;
-    case BinaryExpr::BinaryOp::Mul: currentValue = Value::makeInt(lhs.intValue * rhs.intValue); break;
-    case BinaryExpr::BinaryOp::Div: currentValue = Value::makeInt(lhs.intValue / rhs.intValue); break;
-    return;
+    case BinaryExpr::BinaryOp::Add:
+      currentValue = Value::makeInt(lhs.intValue + rhs.intValue);
+      return;
+
+    case BinaryExpr::BinaryOp::Sub:
+      currentValue = Value::makeInt(lhs.intValue - rhs.intValue);
+      return;
+
+    case BinaryExpr::BinaryOp::Mul:
+      currentValue = Value::makeInt(lhs.intValue * rhs.intValue);
+      return;
+
+    case BinaryExpr::BinaryOp::Div:
+      currentValue = Value::makeInt(lhs.intValue / rhs.intValue);
+      return;
   }
-  // Fehlermeldung bei nicht implementiertem Operator
+
   throw std::runtime_error("Unsupported binary operator");
 }
+
 
 //
 void Interpreter::visit(UnaryExpr* e) {

@@ -57,23 +57,47 @@ Expr* ASTBuilder::visitAssignExpr(cppParser::AssignExprContext* ctx) {
 
 Expr* ASTBuilder::visitAdditiveExpr(cppParser::AdditiveExprContext* ctx) {
     Expr* left = visitMultiplicativeExpr(ctx->multiplicativeExpr(0));
+
     for (size_t i = 1; i < ctx->multiplicativeExpr().size(); ++i) {
         Expr* right = visitMultiplicativeExpr(ctx->multiplicativeExpr(i));
-        // Annahme: nur + Operator für Demo
-        left = new BinaryExpr(BinaryExpr::BinaryOp::Add, left, right);
+
+        auto opToken = ctx->children[2 * i - 1]->getText();
+
+        BinaryExpr::BinaryOp op;
+        if (opToken == "+") op = BinaryExpr::BinaryOp::Add;
+        else if (opToken == "-") op = BinaryExpr::BinaryOp::Sub;
+        else throw std::runtime_error("Unknown additive operator: " + opToken);
+
+        left = new BinaryExpr(op, left, right);
     }
+
     return left;
 }
 
+
 Expr* ASTBuilder::visitMultiplicativeExpr(cppParser::MultiplicativeExprContext* ctx) {
     Expr* left = visitUnaryExpr(ctx->unaryExpr(0));
+
     for (size_t i = 1; i < ctx->unaryExpr().size(); ++i) {
         Expr* right = visitUnaryExpr(ctx->unaryExpr(i));
-        // Annahme: nur * Operator für Demo
-        left = new BinaryExpr(BinaryExpr::BinaryOp::Mul, left, right);
+
+        auto opToken = ctx->children[2 * i - 1]->getText();
+
+        BinaryExpr::BinaryOp op;
+        if (opToken == "*") op = BinaryExpr::BinaryOp::Mul;
+        else if (opToken == "/") op = BinaryExpr::BinaryOp::Div;
+        else if (opToken == "%") {
+            throw std::runtime_error("% not supported yet");
+        } else {
+            throw std::runtime_error("Unknown multiplicative operator: " + opToken);
+        }
+
+        left = new BinaryExpr(op, left, right);
     }
+
     return left;
 }
+
 
 Expr* ASTBuilder::visitUnaryExpr(cppParser::UnaryExprContext* ctx) {
     if (ctx->postfixExpr()) {
