@@ -6,7 +6,6 @@
 #include "runtime/StackFrame.h"
 #include "runtime/Value.h"
 #include "ast/AST.h"
-#include "ast/ASTVisitor.h"
 #include "ReturnSignal.h"
 #include <unordered_map>
 
@@ -40,6 +39,8 @@ public:
   void visit(FunctionDecl*) override;
   void visit(CallExpr*) override;
   void visit(ClassDecl*) override;
+  void visit(ExprStmt*) override;
+
 
 
 

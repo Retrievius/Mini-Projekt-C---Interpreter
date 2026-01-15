@@ -42,10 +42,10 @@ void Interpreter::visit(BinaryExpr* e) {
 
   // Berechnet lhs +, -, *, / rhs und speichert Ergebnis in currentValue
   switch (e->op) {
-    case BinaryOp::Add: currentValue = Value::makeInt(lhs.intValue + rhs.intValue); break;
-    case BinaryOp::Sub: currentValue = Value::makeInt(lhs.intValue - rhs.intValue); break;
-    case BinaryOp::Mul: currentValue = Value::makeInt(lhs.intValue * rhs.intValue); break;
-    case BinaryOp::Div: currentValue = Value::makeInt(lhs.intValue / rhs.intValue); break;
+    case BinaryExpr::BinaryOp::Add: currentValue = Value::makeInt(lhs.intValue + rhs.intValue); break;
+    case BinaryExpr::BinaryOp::Sub: currentValue = Value::makeInt(lhs.intValue - rhs.intValue); break;
+    case BinaryExpr::BinaryOp::Mul: currentValue = Value::makeInt(lhs.intValue * rhs.intValue); break;
+    case BinaryExpr::BinaryOp::Div: currentValue = Value::makeInt(lhs.intValue / rhs.intValue); break;
     return;
   }
   // Fehlermeldung bei nicht implementiertem Operator
@@ -55,7 +55,7 @@ void Interpreter::visit(BinaryExpr* e) {
 //
 void Interpreter::visit(UnaryExpr* e) {
   Value v = evalExpr(e->expr);
-  if (e->op == UnaryOp::Neg)
+  if (e->op == UnaryExpr::UnaryOp::Neg)
     currentValue = Value::makeInt(-v.intValue);
 }
 
@@ -152,7 +152,7 @@ void Interpreter::visit(CallExpr* call) {
   for (size_t i = 0; i < func->params.size(); ++i) {
     Cell* cell = new Cell();
     cell->value = argValues[i];
-    newFrame.locals[func->params[i]] = cell;
+    newFrame.locals[func->params[i]->name] = cell;
   }
 
   // 4. Body ausführen + Return abfangen
@@ -171,6 +171,10 @@ void Interpreter::visit(CallExpr* call) {
 
 void Interpreter::visit(ClassDecl* decl) {
   classes[decl->name] = decl;
+}
+
+void Interpreter::visit(ExprStmt* stmt) {
+  evalExpr(stmt->expr);
 }
 
 // --------------------
