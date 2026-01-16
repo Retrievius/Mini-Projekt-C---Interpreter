@@ -82,11 +82,11 @@ block
     ;
 
 whileStmt
-    : 'while' '(' expr ')' block
+    : 'while' '(' expr ')' stmt
     ;
 
 ifStmt
-    : 'if' '(' expr ')' block ('else' block)?
+    : 'if' '(' expr ')' stmt ('else' stmt)?
     ;
 
 returnStmt

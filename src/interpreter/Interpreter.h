@@ -40,6 +40,8 @@ public:
   void visit(CallExpr*) override;
   void visit(ClassDecl*) override;
   void visit(ExprStmt*) override;
+  void visit(VarExpr *) override;
+  void visit(BoolLiteral *) override;
 
 
 

@@ -1,7 +1,6 @@
 #pragma once
 #include "ast/AST.h"
 #include "gen/cppParser.h"
-#include "external/antlr4-runtime/runtime/src/antlr4-runtime.h"
 
 class ASTBuilder {
 public:
@@ -9,10 +8,18 @@ public:
 
 private:
     Stmt* visitStmt(cppParser::StmtContext* ctx);
+
     Expr* visitExpr(cppParser::ExprContext* ctx);
     Expr* visitAssignExpr(cppParser::AssignExprContext* ctx);
+
+    Expr* visitLogicalOrExpr(cppParser::LogicalOrExprContext* ctx);
+    Expr* visitLogicalAndExpr(cppParser::LogicalAndExprContext* ctx);
+    Expr* visitEqualityExpr(cppParser::EqualityExprContext* ctx);
+    Expr* visitRelationalExpr(cppParser::RelationalExprContext* ctx);
+
     Expr* visitAdditiveExpr(cppParser::AdditiveExprContext* ctx);
     Expr* visitMultiplicativeExpr(cppParser::MultiplicativeExprContext* ctx);
     Expr* visitUnaryExpr(cppParser::UnaryExprContext* ctx);
     Expr* visitPrimaryExpr(cppParser::PrimaryExprContext* ctx);
+
 };

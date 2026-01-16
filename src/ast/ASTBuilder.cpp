@@ -34,12 +34,31 @@ Stmt* ASTBuilder::visitStmt(cppParser::StmtContext* ctx) {
         for (auto* s : ctx->block()->stmt())
             block->statements.push_back(visitStmt(s));
         return block;
+
     } else if (ctx->ifStmt()) {
-        // TODO: IfStmt
+        auto* s = new IfStmt();
+        s->condition = visitExpr(ctx->ifStmt()->expr());
+
+        // then block
+        s->thenBranch = (BlockStmt*)visitStmt(ctx->ifStmt()->stmt(0));
+
+        // optional else block
+        if (ctx->ifStmt()->stmt().size() > 1) {
+            s->elseBranch = (BlockStmt*)visitStmt(ctx->ifStmt()->stmt(1));
+        }
+        return s;
+
     } else if (ctx->whileStmt()) {
-        // TODO: WhileStmt
+        auto* s = new WhileStmt();
+        s->condition = visitExpr(ctx->whileStmt()->expr());
+        s->body = (BlockStmt*)visitStmt(ctx->whileStmt()->stmt());
+        return s;
+
     } else if (ctx->returnStmt()) {
-        // TODO: ReturnStmt
+        auto* s = new ReturnStmt();
+        if (ctx->returnStmt()->expr())
+            s->expr = visitExpr(ctx->returnStmt()->expr());
+        return s;
     }
 
     throw std::runtime_error("Unknown statement type");
@@ -51,8 +70,7 @@ Expr* ASTBuilder::visitExpr(cppParser::ExprContext* ctx) {
 }
 
 Expr* ASTBuilder::visitAssignExpr(cppParser::AssignExprContext* ctx) {
-    // Hier nur AdditiveExpr als Beispiel
-    return visitAdditiveExpr(ctx->logicalOrExpr()->logicalAndExpr(0)->equalityExpr(0)->relationalExpr(0)->additiveExpr(0));
+    return visitLogicalOrExpr(ctx->logicalOrExpr());
 }
 
 Expr* ASTBuilder::visitAdditiveExpr(cppParser::AdditiveExprContext* ctx) {
@@ -87,7 +105,7 @@ Expr* ASTBuilder::visitMultiplicativeExpr(cppParser::MultiplicativeExprContext* 
         if (opToken == "*") op = BinaryExpr::BinaryOp::Mul;
         else if (opToken == "/") op = BinaryExpr::BinaryOp::Div;
         else if (opToken == "%") {
-            throw std::runtime_error("% not supported yet");
+            op = BinaryExpr::BinaryOp::Mod;
         } else {
             throw std::runtime_error("Unknown multiplicative operator: " + opToken);
         }
@@ -104,8 +122,14 @@ Expr* ASTBuilder::visitUnaryExpr(cppParser::UnaryExprContext* ctx) {
         return visitPrimaryExpr(ctx->postfixExpr()->primaryExpr());
     } else if (ctx->unaryExpr()) {
         Expr* inner = visitUnaryExpr(ctx->unaryExpr());
-        // TODO: Unary-Operator abbilden
-        return inner;
+        auto opToken = ctx->children[0]->getText();
+
+        if (opToken == "-")
+            return new UnaryExpr(UnaryExpr::UnaryOp::Neg, inner);
+        if (opToken == "!")
+            return new UnaryExpr(UnaryExpr::UnaryOp::Not, inner);
+
+        throw std::runtime_error("Unknown unary operator");
     }
     throw std::runtime_error("Unknown unary expression");
 }
@@ -113,14 +137,69 @@ Expr* ASTBuilder::visitUnaryExpr(cppParser::UnaryExprContext* ctx) {
 Expr* ASTBuilder::visitPrimaryExpr(cppParser::PrimaryExprContext* ctx) {
     if (ctx->literal()) {
         auto* lit = ctx->literal();
-        if (lit->NUMBER()) {
-            return new IntLiteral(std::stoi(lit->NUMBER()->getText()));
-        }
-        // TODO: Strings, Char, Bool
-    } else if (ctx->ID()) {
-        // TODO: VariableReferenz
-    } else if (ctx->expr()) {
+        if (lit->NUMBER()) return new IntLiteral(std::stoi(lit->NUMBER()->getText()));
+        if (lit->getText() == "true") return new BoolLiteral(true);
+        if (lit->getText() == "false") return new BoolLiteral(false);
+    }
+    else if (ctx->ID()) {
+        return new VarExpr(ctx->ID()->getText());
+    }
+    else if (ctx->expr()) {
         return visitExpr(ctx->expr());
     }
-    throw std::runtime_error("Unknown primary expression");
+        throw std::runtime_error("Unknown primary expression");
+}
+
+Expr* ASTBuilder::visitLogicalOrExpr(cppParser::LogicalOrExprContext* ctx) {
+    Expr* left = visitLogicalAndExpr(ctx->logicalAndExpr(0));
+
+    for (size_t i = 1; i < ctx->logicalAndExpr().size(); ++i) {
+        Expr* right = visitLogicalAndExpr(ctx->logicalAndExpr(i));
+        left = new BinaryExpr(BinaryExpr::BinaryOp::Or, left, right);
+    }
+
+    return left;
+}
+
+Expr* ASTBuilder::visitLogicalAndExpr(cppParser::LogicalAndExprContext* ctx) {
+    Expr* left = visitEqualityExpr(ctx->equalityExpr(0));
+
+    for (size_t i = 1; i < ctx->equalityExpr().size(); ++i) {
+        Expr* right = visitEqualityExpr(ctx->equalityExpr(i));
+        left = new BinaryExpr(BinaryExpr::BinaryOp::And, left, right);
+    }
+
+    return left;
+}
+
+Expr* ASTBuilder::visitEqualityExpr(cppParser::EqualityExprContext* ctx) {
+    Expr* left = visitRelationalExpr(ctx->relationalExpr(0));
+
+    for (size_t i = 1; i < ctx->relationalExpr().size(); ++i) {
+        Expr* right = visitRelationalExpr(ctx->relationalExpr(i));
+        auto op = ctx->children[2 * i - 1]->getText();
+
+        if (op == "==") left = new BinaryExpr(BinaryExpr::BinaryOp::Eq, left, right);
+        else if (op == "!=") left = new BinaryExpr(BinaryExpr::BinaryOp::Neq, left, right);
+        else throw std::runtime_error("Unknown == operator");
+    }
+
+    return left;
+}
+
+Expr* ASTBuilder::visitRelationalExpr(cppParser::RelationalExprContext* ctx) {
+    Expr* left = visitAdditiveExpr(ctx->additiveExpr(0));
+
+    for (size_t i = 1; i < ctx->additiveExpr().size(); ++i) {
+        Expr* right = visitAdditiveExpr(ctx->additiveExpr(i));
+        auto op = ctx->children[2 * i - 1]->getText();
+
+        if (op == "<") left = new BinaryExpr(BinaryExpr::BinaryOp::Lt, left, right);
+        else if (op == "<=") left = new BinaryExpr(BinaryExpr::BinaryOp::Le, left, right);
+        else if (op == ">") left = new BinaryExpr(BinaryExpr::BinaryOp::Gt, left, right);
+        else if (op == ">=") left = new BinaryExpr(BinaryExpr::BinaryOp::Ge, left, right);
+        else throw std::runtime_error("Unknown < operator");
+    }
+
+    return left;
 }

@@ -2,6 +2,8 @@
 
 #include "Interpreter.h"
 #include <stdexcept>
+#include <iostream>
+#include <ostream>
 
 // Konstruktor: Beim Start wird ein StackFrame erzeugt
 Interpreter::Interpreter() {
@@ -41,20 +43,51 @@ void Interpreter::visit(BinaryExpr* e) {
   Value rhs = evalExpr(e->rhs);
 
   switch (e->op) {
+
+    // -------- Arithmetik --------
     case BinaryExpr::BinaryOp::Add:
       currentValue = Value::makeInt(lhs.intValue + rhs.intValue);
       return;
-
     case BinaryExpr::BinaryOp::Sub:
       currentValue = Value::makeInt(lhs.intValue - rhs.intValue);
       return;
-
     case BinaryExpr::BinaryOp::Mul:
       currentValue = Value::makeInt(lhs.intValue * rhs.intValue);
       return;
-
     case BinaryExpr::BinaryOp::Div:
+      if (rhs.intValue == 0) throw std::runtime_error("Division by zero");
       currentValue = Value::makeInt(lhs.intValue / rhs.intValue);
+      return;
+    case BinaryExpr::BinaryOp::Mod:
+      currentValue = Value::makeInt(lhs.intValue % rhs.intValue);
+      return;
+
+      // -------- Vergleiche --------
+    case BinaryExpr::BinaryOp::Eq:
+      currentValue = Value::makeBool(lhs.intValue == rhs.intValue);
+      return;
+    case BinaryExpr::BinaryOp::Neq:
+      currentValue = Value::makeBool(lhs.intValue != rhs.intValue);
+      return;
+    case BinaryExpr::BinaryOp::Lt:
+      currentValue = Value::makeBool(lhs.intValue < rhs.intValue);
+      return;
+    case BinaryExpr::BinaryOp::Le:
+      currentValue = Value::makeBool(lhs.intValue <= rhs.intValue);
+      return;
+    case BinaryExpr::BinaryOp::Gt:
+      currentValue = Value::makeBool(lhs.intValue > rhs.intValue);
+      return;
+    case BinaryExpr::BinaryOp::Ge:
+      currentValue = Value::makeBool(lhs.intValue >= rhs.intValue);
+      return;
+
+      // -------- Logik --------
+    case BinaryExpr::BinaryOp::And:
+      currentValue = Value::makeBool(lhs.isTrue() && rhs.isTrue());
+      return;
+    case BinaryExpr::BinaryOp::Or:
+      currentValue = Value::makeBool(lhs.isTrue() || rhs.isTrue());
       return;
   }
 
@@ -62,11 +95,32 @@ void Interpreter::visit(BinaryExpr* e) {
 }
 
 
+
 //
 void Interpreter::visit(UnaryExpr* e) {
   Value v = evalExpr(e->expr);
-  if (e->op == UnaryExpr::UnaryOp::Neg)
-    currentValue = Value::makeInt(-v.intValue);
+
+  switch (e->op) {
+    case UnaryExpr::UnaryOp::Neg:
+      currentValue = Value::makeInt(-v.intValue);
+      return;
+    case UnaryExpr::UnaryOp::Not:
+      currentValue = Value::makeBool(!v.isTrue());
+      return;
+  }
+
+  throw std::runtime_error("Unsupported unary operator");
+}
+
+// Bool-Literal
+void Interpreter::visit(BoolLiteral* lit) {
+  currentValue = Value::makeBool(lit->value);
+}
+
+// Variablen-Zugriff
+void Interpreter::visit(VarExpr* var) {
+  Cell* cell = resolveVariable(var->name);
+  currentValue = cell->value;
 }
 
 
@@ -116,7 +170,7 @@ void Interpreter::visit(BlockStmt* block) {
 void Interpreter::visit(IfStmt* stmt) {
   Value cond = evalExpr(stmt->condition);
   // Implizite Bool-Konvertierung
-  if (cond.intValue != 0) {
+  if (cond.isTrue()) {
     execStmt(stmt->thenBranch);
   } else if (stmt->elseBranch) {
     execStmt(stmt->elseBranch);
@@ -125,7 +179,7 @@ void Interpreter::visit(IfStmt* stmt) {
 
 // While
 void Interpreter::visit(WhileStmt* stmt) {
-  while (evalExpr(stmt->condition).intValue != 0) {
+  while (evalExpr(stmt->condition).isTrue()) {
     execStmt(stmt->body);
   }
 }
@@ -141,6 +195,22 @@ void Interpreter::visit(FunctionDecl* decl) {
 }
 
 void Interpreter::visit(CallExpr* call) {
+
+  // -------- Builtins --------
+  if (call->functionName == "print_int") {
+    Value v = evalExpr(call->args[0]);
+    std::cout << v.intValue << std::endl;
+    currentValue = Value::makeVoid();
+    return;
+  }
+
+  if (call->functionName == "print_bool") {
+    Value v = evalExpr(call->args[0]);
+    std::cout << (v.boolValue ? "true" : "false") << std::endl;
+    currentValue = Value::makeVoid();
+    return;
+  }
+
   auto it = functions.find(call->functionName);
   if (it == functions.end()) {
     throw std::runtime_error("Unknown function: " + call->functionName);
