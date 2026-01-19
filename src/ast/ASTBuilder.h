@@ -22,4 +22,16 @@ private:
     Expr* visitUnaryExpr(cppParser::UnaryExprContext* ctx);
     Expr* visitPrimaryExpr(cppParser::PrimaryExprContext* ctx);
 
+    Expr* visitPostfixExpr(cppParser::PostfixExprContext* ctx);
+
+    FunctionDecl* visitFnDecl(cppParser::FnDeclContext* ctx);
+
+    Param* visitParam(cppParser::ParamContext* ctx);
+    BlockStmt* visitBlock(cppParser::BlockContext* ctx);
+    ClassDecl* visitClassDecl(cppParser::ClassDeclContext* ctx);
+
+
+
+
 };
+

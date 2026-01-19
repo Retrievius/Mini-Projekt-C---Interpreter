@@ -42,6 +42,9 @@ public:
   void visit(ExprStmt*) override;
   void visit(VarExpr *) override;
   void visit(BoolLiteral *) override;
+  void visit(CharLiteral *) override;
+  void visit(StringLiteral *) override;
+
 
 
 
