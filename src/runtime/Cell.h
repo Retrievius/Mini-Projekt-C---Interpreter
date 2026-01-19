@@ -6,5 +6,11 @@
 
 // Speicherplatz mit Value als Inhalt
 struct Cell {
-  Value value;
+    Value value;
+    Cell* alias = nullptr;   // ← NEU
+
+    Value& get() {
+        if (alias) return alias->get();
+        return value;
+    }
 };

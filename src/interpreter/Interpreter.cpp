@@ -17,10 +17,33 @@ StackFrame& Interpreter::frame() {
 
 // Programmausführung
 void Interpreter::run(Program* program) {
+
+  // 1. Klassen registrieren
+  for (auto* c : program->classes) {
+    classes[c->name] = c;
+  }
+
+  // 2. Funktionen registrieren
+  for (auto* f : program->functions) {
+    functions[f->name] = f;
+  }
+
+  // 3. Top-Level Statements ausführen (falls vorhanden)
   for (auto* stmt : program->statements) {
     execStmt(stmt);
   }
+
+  // 4. main() suchen und starten
+  auto it = functions.find("main");
+  if (it == functions.end()) {
+    throw std::runtime_error("No main() function found");
+  }
+
+  CallExpr callMain("main");
+  visit(&callMain);
 }
+
+
 
 // --------------------
 // Expressions: liefern Value
@@ -117,10 +140,19 @@ void Interpreter::visit(BoolLiteral* lit) {
   currentValue = Value::makeBool(lit->value);
 }
 
+void Interpreter::visit(CharLiteral* lit) {
+  currentValue = Value::makeChar(lit->value);
+}
+
+void Interpreter::visit(StringLiteral* lit) {
+  currentValue = Value::makeString(lit->value);
+}
+
+
 // Variablen-Zugriff
 void Interpreter::visit(VarExpr* var) {
   Cell* cell = resolveVariable(var->name);
-  currentValue = cell->value;
+  currentValue = cell->get();
 }
 
 
@@ -135,23 +167,46 @@ void Interpreter::execStmt(Stmt* stmt) {
 
 // Variablendeklaration: Neue Variable -> neue Cell
 void Interpreter::visit(VarDecl* decl) {
+
+  // Referenz?
+  if (decl->isRef) {
+
+    if (!decl->initExpr)
+      throw std::runtime_error("Reference must be initialized");
+
+    // Initialwert MUSS Variable sein
+    auto* varExpr = dynamic_cast<VarExpr*>(decl->initExpr);
+    if (!varExpr)
+      throw std::runtime_error("Reference must bind to variable");
+
+    Cell* target = resolveVariable(varExpr->name);
+
+    Cell* cell = new Cell();
+    cell->alias = target;   // ← DAS ist der Trick
+
+    frame().locals[decl->name] = cell;
+    return;
+  }
+
+  // Normale Variable
   Cell* cell = new Cell();
-  // Initialisierung mit Ausdruck oder Default-Wert
   if (decl->initExpr) {
     cell->value = evalExpr(decl->initExpr);
   } else {
     cell->value = Value::makeInt(0);
   }
-  // Variable wird im aktuellen StackFrame unter ihrem Namen gespeichert
+
   frame().locals[decl->name] = cell;
 }
+
+
 
 // Zuweisung: Findet Cell der Variable
 void Interpreter::visit(AssignExpr* assign) {
   Cell* target = resolveVariable(assign->name);
   // Schreibt neue Value in bestehende Cell
   Value rhs = evalExpr(assign->expr);
-  target->value = rhs;
+  target->get() = rhs;
   currentValue = rhs;
 }
 
@@ -211,6 +266,20 @@ void Interpreter::visit(CallExpr* call) {
     return;
   }
 
+  if (call->functionName == "print_char") {
+    Value v = evalExpr(call->args[0]);
+    std::cout << v.charValue << std::endl;
+    currentValue = Value::makeVoid();
+    return;
+  }
+
+  if (call->functionName == "print_string") {
+    Value v = evalExpr(call->args[0]);
+    std::cout << v.stringValue << std::endl;
+    currentValue = Value::makeVoid();
+    return;
+  }
+
   auto it = functions.find(call->functionName);
   if (it == functions.end()) {
     throw std::runtime_error("Unknown function: " + call->functionName);
@@ -228,12 +297,29 @@ void Interpreter::visit(CallExpr* call) {
   callStack.emplace_back();
   StackFrame& newFrame = frame();
 
-  // 3. Parameter binden (ALS CELLS!)
+  // 3. Parameter binden
   for (size_t i = 0; i < func->params.size(); ++i) {
-    Cell* cell = new Cell();
-    cell->value = argValues[i];
-    newFrame.locals[func->params[i]->name] = cell;
+    Param* param = func->params[i];
+
+    if (func->params[i]->isRef) {
+      // Argument MUSS Variable sein
+      auto* varExpr = dynamic_cast<VarExpr*>(call->args[i]);
+      if (!varExpr)
+        throw std::runtime_error("Reference parameter requires variable");
+
+      Cell* target = resolveVariable(varExpr->name);
+
+      Cell* cell = new Cell();
+      cell->alias = target;   // ← Alias
+
+      newFrame.locals[func->params[i]->name] = cell;
+    } else {
+      Cell* cell = new Cell();
+      cell->value = argValues[i];
+      newFrame.locals[func->params[i]->name] = cell;
+    }
   }
+
 
   // 4. Body ausführen + Return abfangen
   try {

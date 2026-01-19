@@ -8,6 +8,10 @@ void CallExpr::accept(ASTVisitor* v) { v->visit(this); }
 void AssignExpr::accept(ASTVisitor* v) { v->visit(this); }
 void BoolLiteral::accept(ASTVisitor* v) { v->visit(this); }
 void VarExpr::accept(ASTVisitor* v) { v->visit(this); }
+void CharLiteral::accept(ASTVisitor* v) { v->visit(this); }
+void StringLiteral::accept(ASTVisitor* v) { v->visit(this); }
+void FieldExpr::accept(ASTVisitor* v) { v->visit(this); }
+void MethodCallExpr::accept(ASTVisitor* v) { v->visit(this); }
 
 // Statements
 void ExprStmt::accept(ASTVisitor* v) { v->visit(this); }

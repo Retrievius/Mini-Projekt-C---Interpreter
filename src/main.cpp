@@ -1,6 +1,8 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <fstream>
+#include <sstream>
 
 #include "external/antlr4-runtime/runtime/src/antlr4-runtime.h"
 #include "gen/cppLexer.h"
@@ -8,29 +10,67 @@
 #include "ast/AST.h"
 #include "ast/ASTBuilder.h"
 #include "interpreter/Interpreter.h"
+#include "ast/PrettyPrinter.h"
+
+// Datei einlesen
+std::string readFile(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open())
+        throw std::runtime_error("Cannot open file: " + path);
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
 
 int main() {
-    // 1. Code, den wir parsen wollen
-    std::string code = "1 + 2;"; // Beispielcode, kann erweitert werden
+    try {
+        // Datei einlesen
+        //std::string code = readFile("../tests/pos/GOLD01_basics.cpp");
+        //std::string code = readFile("../tests/pos/GOLD02_ref_params.cpp");
+        std::string code = readFile("../tests/pos/GOLD03_classes_dispatch.cpp");
+        //std::string code = readFile("../tests/pos/GOLD04_slicing.cpp");
+        //std::string code = readFile("../tests/pos/GOLD05_virtual_override.cpp");
+        //std::string code = readFile("../tests/pos/GOLD06_constructors_basic.cpp");
+        //std::string code = readFile("../tests/pos/GOLD07_constructors_inheritance.cpp");
 
-    // 2. ANTLR InputStream, Lexer, TokenStream und Parser erstellen
-    antlr4::ANTLRInputStream input(code);
-    cppLexer lexer(&input);
-    antlr4::CommonTokenStream tokens(&lexer);
-    cppParser parser(&tokens);
+        // ANTLR InputStream, Lexer, TokenStream, Parser
+        antlr4::ANTLRInputStream input(code);
+        cppLexer lexer(&input);
+        antlr4::CommonTokenStream tokens(&lexer);
+        cppParser parser(&tokens);
 
-    // 3. Parsebaum erzeugen
-    cppParser::StartContext* tree = parser.start();
+        cppParser::StartContext* tree = parser.start();
 
-    // 4. ASTBuilder erzeugen und AST bauen
-    ASTBuilder builder;
-    Program* prog = builder.build(tree);
+        // AST bauen
+        ASTBuilder builder;
+        Program* prog = builder.build(tree);
 
-    // 5. Interpreter ausführen
-    Interpreter interp;
-    interp.run(prog);
+        // AST pretty print
+        std::cout << "----- AST -----\n";
+        ASTPrinter printer;
 
-    std::cout << "Parsing and interpretation completed successfully!\n";
+        for (auto* stmt : prog->functions)
+            stmt->accept(&printer);
+
+        for (auto* stmt : prog->classes)
+            stmt->accept(&printer);
+
+        for (auto* stmt : prog->statements)
+            stmt->accept(&printer);
+
+        std::cout << "---------------\n";
+
+        // Interpreter ausführen
+        std::cout << "----- Interpreter Output -----\n";
+        Interpreter interp;
+        interp.run(prog);
+        std::cout << "-----------------------------\n";
+    }
+    catch (std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
 
     return 0;
 }
