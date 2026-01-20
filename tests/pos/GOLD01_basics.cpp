@@ -27,7 +27,7 @@ int main() {
 
   return 0;
 }
-/* EXPECT (Zeile für Zeile):
+/* EXPECT (Zeile fuer Zeile):
 12
 0
 A

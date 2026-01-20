@@ -23,22 +23,18 @@ StackFrame& Interpreter::frame() {
 }
 
 void Interpreter::loadProgram(Program* program) {
-  // 1. Klassen registrieren
   for (auto* c : program->classes) {
     classes[c->name] = c;
   }
 
-  // 2. Funktionen registrieren (freie Funktionen)
   for (auto* f : program->functions) {
     functions[f->name] = f;
   }
 
-  // 3. Methoden + Ctors aus Klassenmitgliedern registrieren
   for (auto* c : program->classes) {
     for (auto* m : c->members) {
       if (auto* fn = dynamic_cast<FunctionDecl*>(m)) {
-        std::string key = c->name + "::" + fn->name;
-        functions[key] = fn;
+        functions[c->name + "::" + fn->name] = fn;
       }
     }
   }
@@ -224,24 +220,20 @@ void Interpreter::visit(StringLiteral* lit) {
 
 // Variablen-Zugriff
 void Interpreter::visit(VarExpr* var) {
-  // 1) lokale Variable?
-  for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
-    auto found = it->locals.find(var->name);
-    if (found != it->locals.end()) {
-      currentValue = found->second->get();
-      return;
-    }
+  // 1) normale Variable (mit Session-Sichtbarkeit!)
+  try {
+    Cell* c = resolveVariable(var->name);
+    currentValue = c->get();
+    return;
+  } catch (...) {
+    // fallback to this.<field>
   }
 
-  // 2) fallback: field von this?
-  // 2) fallback: field von this?
+  // 2) fallback: this.<field>
   Cell* thisCell = nullptr;
   for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
     auto f = it->locals.find("this");
-    if (f != it->locals.end()) {
-      thisCell = f->second;
-      break;
-    }
+    if (f != it->locals.end()) { thisCell = f->second; break; }
   }
 
   if (thisCell) {
@@ -255,11 +247,8 @@ void Interpreter::visit(VarExpr* var) {
     }
   }
 
-
   throw std::runtime_error("Undefined variable: " + var->name);
 }
-
-
 
 // --------------------
 // Statements: verändern den Zustand
@@ -802,13 +791,13 @@ Cell* Interpreter::resolveVariable(const std::string& name) {
 Cell* Interpreter::resolveLValue(Expr* e) {
   if (auto* v = dynamic_cast<VarExpr*>(e)) {
 
-    // 1) normale Variable (lokal / outer scopes)
-    for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
-      auto found = it->locals.find(v->name);
-      if (found != it->locals.end()) return found->second;
+    // 1) normale Variable (mit Session-Sichtbarkeitsregel!)
+    try {
+      return resolveVariable(v->name);
+    } catch (...) {
+      // 2) fallback this.<field>
     }
 
-    // 2) fallback: this.<field> (für ctor/method bodies)
     Cell* thisCell = nullptr;
     for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
       auto f = it->locals.find("this");
@@ -837,7 +826,6 @@ Cell* Interpreter::resolveLValue(Expr* e) {
 
   throw std::runtime_error("Assignment target must be lvalue");
 }
-
 
 static std::string normalizeType(std::string t) {
   // entfernt alle '&' und Spaces (einfach, reicht fuer dein Projekt)
