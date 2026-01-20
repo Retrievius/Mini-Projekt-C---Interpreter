@@ -9,6 +9,8 @@ struct Cell {
     Value value;
     Cell* alias = nullptr;   // ← NEU
 
+    std::string staticType; // NEU: z.B. "Base" bei Base& rb
+
     Value& get() {
         if (alias) return alias->get();
         return value;

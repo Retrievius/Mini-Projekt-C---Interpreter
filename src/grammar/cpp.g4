@@ -14,7 +14,7 @@ topLevelDecl
 //  Klassen
 
 classDecl
-    : 'class' ID (':' 'public' ID)? classBody
+    : 'class' ID (':' 'public' ID)? classBody ';'?
     ;
 
 classBody
@@ -40,7 +40,7 @@ ctorDecl
     ;
 
 methodDecl
-    : ('virtual')? type ID '(' params? ')' block
+    : ('virtual')? type ID '(' params? ')' block ';'?
     ;
 
 //  Funktionen
