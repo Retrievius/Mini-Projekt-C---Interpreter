@@ -22,20 +22,18 @@ StackFrame& Interpreter::frame() {
   return callStack.back();
 }
 
-// Programmausführung
-void Interpreter::run(Program* program) {
-
+void Interpreter::loadProgram(Program* program) {
   // 1. Klassen registrieren
   for (auto* c : program->classes) {
     classes[c->name] = c;
   }
 
-  // 2. Funktionen registrieren
+  // 2. Funktionen registrieren (freie Funktionen)
   for (auto* f : program->functions) {
     functions[f->name] = f;
   }
 
-  // Methoden aus Klassenmitgliedern registrieren
+  // 3. Methoden + Ctors aus Klassenmitgliedern registrieren
   for (auto* c : program->classes) {
     for (auto* m : c->members) {
       if (auto* fn = dynamic_cast<FunctionDecl*>(m)) {
@@ -44,23 +42,81 @@ void Interpreter::run(Program* program) {
       }
     }
   }
+}
 
-  // 3. Top-Level Statements ausführen (falls vorhanden)
+void Interpreter::ensureSession() {
+  if (sessionIndex != -1) return;
+
+  // global frame existiert schon (Interpreter ctor macht callStack.emplace_back())
+  callStack.emplace_back(); // Session-Frame
+  sessionIndex = (int)callStack.size() - 1;
+}
+
+void Interpreter::execTopLevel(Program* program) {
+  ensureSession();
+  // Statements immer im Session-Frame ausführen:
+  // Wir pushen KEINEN neuen Frame, sondern nutzen den offenen session frame.
+  // Daher: temporär auf session frame "gehen", indem wir sicherstellen, dass es top ist:
+  // In unserem Modell ist session frame sowieso top, solange du keinen anderen pushst.
   for (auto* stmt : program->statements) {
     execStmt(stmt);
   }
+}
 
-  // 4. main() suchen und starten
-  auto it = functions.find("main");
-  if (it == functions.end()) {
-    throw std::runtime_error("No main() function found");
+void Interpreter::execRepl(Program* program) {
+  ensureSession();
+
+  for (auto* stmt : program->statements) {
+    // Expression-Statements auto-ausgeben
+    if (auto* es = dynamic_cast<ExprStmt*>(stmt)) {
+      Value v = evalExpr(es->expr);
+
+      // Nur nicht-void automatisch ausgeben
+      if (v.kind != ValueKind::Void) {
+        // minimal: int/bool/char/string
+        if (v.kind == ValueKind::Int) {
+          std::cout << v.intValue << "\n";
+        } else if (v.kind == ValueKind::Bool) {
+          std::cout << (v.boolValue ? "true" : "false") << "\n";
+        } else if (v.kind == ValueKind::Char) {
+          std::cout << v.charValue << "\n";
+        } else if (v.kind == ValueKind::String) {
+          std::cout << v.stringValue << "\n";
+        } else {
+          // object/sonstiges: erstmal nix oder Debug
+          std::cout << "<value>\n";
+        }
+      }
+    } else {
+      execStmt(stmt);
+    }
   }
-
-  CallExpr callMain("main");
-  visit(&callMain);
 }
 
 
+// Programmausführung
+void Interpreter::run(Program* program) {
+  // registrieren
+  loadProgram(program);
+
+  // Top-Level Statements (falls es welche gibt): im Session scope
+  execTopLevel(program);
+
+  // main() optional ausführen, aber Session offen lassen
+  auto it = functions.find("main");
+  if (it != functions.end()) {
+    ensureSession();
+
+    FunctionDecl* mainFn = it->second;
+
+    // main im Session-Frame laufen lassen (kein CallExpr, weil der einen Call-Frame pusht)
+    try {
+      execStmt(mainFn->body);
+    } catch (ReturnSignal&) {
+      // main return ignorieren
+    }
+  }
+}
 
 // --------------------
 // Expressions: liefern Value
@@ -505,6 +561,9 @@ if (clsIt != classes.end()) {
 
     // 4) falls ctor existiert: call-frame, this binden, params binden, body ausführen
     if (ctor) {
+
+      CallDepthGuard guard(*this);
+
         callStack.emplace_back();
         StackFrame& newFrame = frame();
 
@@ -551,6 +610,9 @@ if (clsIt != classes.end()) {
   }
 
   // 2. Neuer StackFrame
+
+  CallDepthGuard guard(*this);
+
   callStack.emplace_back();
   StackFrame& newFrame = frame();
 
@@ -671,6 +733,9 @@ void Interpreter::visit(MethodCallExpr* mc) {
     }
 
     // 7) Call-Frame erstellen
+
+  CallDepthGuard guard(*this);
+
     callStack.emplace_back();
     StackFrame& newFrame = frame();
 
@@ -723,14 +788,14 @@ void Interpreter::visit(MethodCallExpr* mc) {
 
 // resolveVariable: liefert Cell aber nicht Value
 Cell* Interpreter::resolveVariable(const std::string& name) {
-  // Suche
-  for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
-    auto found = it->locals.find(name);
-    if (found != it->locals.end()) {
-      return found->second;
-    }
+  for (int i = (int)callStack.size() - 1; i >= 0; --i) {
+
+    // In Funktions-/Methoden-/Ctor-Calls darf Session NICHT sichtbar sein
+    if (callDepth > 0 && i == sessionIndex) continue;
+
+    auto found = callStack[i].locals.find(name);
+    if (found != callStack[i].locals.end()) return found->second;
   }
-  // fehler bei undefinierter Variable
   throw std::runtime_error("Undefined variable: " + name);
 }
 

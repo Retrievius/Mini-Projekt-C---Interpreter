@@ -1,0 +1,43 @@
+INTERP ?= ./cmake-build-debug/Mini_Projekt_C___Interpreter.exe
+
+POS_SRCS  := $(wildcard tests/pos/*.cpp)
+NEG_SRCS  := $(wildcard tests/neg/*.cpp)
+
+POS_NAMES := $(notdir $(basename $(POS_SRCS)))
+NEG_NAMES := $(notdir $(basename $(NEG_SRCS)))
+
+BUILD_DIR := build_interp
+OUT_DIR   := $(BUILD_DIR)/out
+EXP_DIR   := $(BUILD_DIR)/expected
+
+.PHONY: iall ipos ineg clean list
+
+iall: ipos ineg
+
+ipos: $(addprefix $(OUT_DIR)/, $(POS_NAMES:%=%._ok))
+ineg: $(addprefix $(OUT_DIR)/, $(NEG_NAMES:%=%._ok))
+
+$(OUT_DIR)/%._ok: tests/pos/%.cpp
+	@mkdir -p $(OUT_DIR) $(EXP_DIR)
+	@echo "==> IPOS $*"
+	@awk '/\/\* *EXPECT/{flag=1; next} /\*\//{if(flag){exit}} flag{print}' $< > $(EXP_DIR)/$*.out
+	@$(INTERP) $< > $(OUT_DIR)/$*.out
+	@diff -u $(EXP_DIR)/$*.out $(OUT_DIR)/$*.out && echo "[OK] $*" || (echo "[FAIL] $*"; exit 1)
+	@touch $@
+
+$(OUT_DIR)/%._ok: tests/neg/%.cpp
+	@mkdir -p $(OUT_DIR)
+	@echo "==> INEG $* (Interpreter sollte fehlschlagen)"
+	@if $(INTERP) $< > $(OUT_DIR)/$*.out 2> $(OUT_DIR)/$*.err; then \
+		echo "[FAIL] $*: Interpreter unerwartet erfolgreich"; exit 1; \
+	else \
+		echo "[OK] $*: Interpreter wie erwartet fehlgeschlagen"; \
+	fi
+	@touch $@
+
+list:
+	@echo "Positivtests:"; for t in $(POS_NAMES); do echo "  $$t"; done
+	@echo "Negativtests:"; for t in $(NEG_NAMES); do echo "  $$t"; done
+
+clean:
+	rm -rf $(BUILD_DIR)

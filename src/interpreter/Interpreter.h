@@ -68,6 +68,23 @@ private:
 
   std::unordered_map<std::string, ClassDecl*> classes;
 
+  // ---- REPL / Session ----
+  int sessionIndex = -1;   // Index des Session-Frames im callStack
+  int callDepth = 0;       // >0 => wir sind in einem Funktions/Methoden/Ctor-Call (Session darf NICHT sichtbar sein)
+
+  struct CallDepthGuard {
+    Interpreter& I;
+    explicit CallDepthGuard(Interpreter& i) : I(i) { I.callDepth++; }
+    ~CallDepthGuard() { I.callDepth--; }
+  };
+
+public:
+  // REPL helpers
+  void loadProgram(Program* program);     // registriert classes/functions/methods (kein main)
+  void ensureSession();                  // legt session frame an falls noch nicht da
+  void execTopLevel(Program* program);   // nur program->statements im Session-Scope
+  void execRepl(Program* program);       // wie execTopLevel, aber ExprStmt auto-print
+
   bool isBaseOf(const std::string& base, const std::string& derived);
   std::vector<VarDecl*> collectFields(const std::string& clsName);
 
