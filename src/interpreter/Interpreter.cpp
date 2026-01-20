@@ -22,45 +22,97 @@ StackFrame& Interpreter::frame() {
   return callStack.back();
 }
 
-// Programmausführung
-void Interpreter::run(Program* program) {
-
-  // 1. Klassen registrieren
+void Interpreter::loadProgram(Program* program) {
   for (auto* c : program->classes) {
     classes[c->name] = c;
   }
 
-  // 2. Funktionen registrieren
   for (auto* f : program->functions) {
     functions[f->name] = f;
   }
 
-  // Methoden aus Klassenmitgliedern registrieren
   for (auto* c : program->classes) {
     for (auto* m : c->members) {
       if (auto* fn = dynamic_cast<FunctionDecl*>(m)) {
-        std::string key = c->name + "::" + fn->name;
-        functions[key] = fn;
+        functions[c->name + "::" + fn->name] = fn;
       }
     }
   }
+}
 
-  // 3. Top-Level Statements ausführen (falls vorhanden)
+void Interpreter::ensureSession() {
+  if (sessionIndex != -1) return;
+
+  // global frame existiert schon (Interpreter ctor macht callStack.emplace_back())
+  callStack.emplace_back(); // Session-Frame
+  sessionIndex = (int)callStack.size() - 1;
+}
+
+void Interpreter::execTopLevel(Program* program) {
+  ensureSession();
+  // Statements immer im Session-Frame ausführen:
+  // Wir pushen KEINEN neuen Frame, sondern nutzen den offenen session frame.
+  // Daher: temporär auf session frame "gehen", indem wir sicherstellen, dass es top ist:
+  // In unserem Modell ist session frame sowieso top, solange du keinen anderen pushst.
   for (auto* stmt : program->statements) {
     execStmt(stmt);
   }
+}
 
-  // 4. main() suchen und starten
-  auto it = functions.find("main");
-  if (it == functions.end()) {
-    throw std::runtime_error("No main() function found");
+void Interpreter::execRepl(Program* program) {
+  ensureSession();
+
+  for (auto* stmt : program->statements) {
+    // Expression-Statements auto-ausgeben
+    if (auto* es = dynamic_cast<ExprStmt*>(stmt)) {
+      Value v = evalExpr(es->expr);
+
+      // Nur nicht-void automatisch ausgeben
+      if (v.kind != ValueKind::Void) {
+        // minimal: int/bool/char/string
+        if (v.kind == ValueKind::Int) {
+          std::cout << v.intValue << "\n";
+        } else if (v.kind == ValueKind::Bool) {
+          std::cout << (v.boolValue ? "true" : "false") << "\n";
+        } else if (v.kind == ValueKind::Char) {
+          std::cout << v.charValue << "\n";
+        } else if (v.kind == ValueKind::String) {
+          std::cout << v.stringValue << "\n";
+        } else {
+          // object/sonstiges: erstmal nix oder Debug
+          std::cout << "<value>\n";
+        }
+      }
+    } else {
+      execStmt(stmt);
+    }
   }
-
-  CallExpr callMain("main");
-  visit(&callMain);
 }
 
 
+// Programmausführung
+void Interpreter::run(Program* program) {
+  // registrieren
+  loadProgram(program);
+
+  // Top-Level Statements (falls es welche gibt): im Session scope
+  execTopLevel(program);
+
+  // main() optional ausführen, aber Session offen lassen
+  auto it = functions.find("main");
+  if (it != functions.end()) {
+    ensureSession();
+
+    FunctionDecl* mainFn = it->second;
+
+    // main im Session-Frame laufen lassen (kein CallExpr, weil der einen Call-Frame pusht)
+    try {
+      execStmt(mainFn->body);
+    } catch (ReturnSignal&) {
+      // main return ignorieren
+    }
+  }
+}
 
 // --------------------
 // Expressions: liefern Value
@@ -168,24 +220,20 @@ void Interpreter::visit(StringLiteral* lit) {
 
 // Variablen-Zugriff
 void Interpreter::visit(VarExpr* var) {
-  // 1) lokale Variable?
-  for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
-    auto found = it->locals.find(var->name);
-    if (found != it->locals.end()) {
-      currentValue = found->second->get();
-      return;
-    }
+  // 1) normale Variable (mit Session-Sichtbarkeit!)
+  try {
+    Cell* c = resolveVariable(var->name);
+    currentValue = c->get();
+    return;
+  } catch (...) {
+    // fallback to this.<field>
   }
 
-  // 2) fallback: field von this?
-  // 2) fallback: field von this?
+  // 2) fallback: this.<field>
   Cell* thisCell = nullptr;
   for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
     auto f = it->locals.find("this");
-    if (f != it->locals.end()) {
-      thisCell = f->second;
-      break;
-    }
+    if (f != it->locals.end()) { thisCell = f->second; break; }
   }
 
   if (thisCell) {
@@ -199,11 +247,8 @@ void Interpreter::visit(VarExpr* var) {
     }
   }
 
-
   throw std::runtime_error("Undefined variable: " + var->name);
 }
-
-
 
 // --------------------
 // Statements: verändern den Zustand
@@ -435,29 +480,33 @@ void Interpreter::visit(CallExpr* call) {
 
   // -------- Builtins --------
   if (call->functionName == "print_int") {
+    if (call->args.size() != 1) throw std::runtime_error("print_int expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << v.intValue << std::endl;
+    std::cout << v.intValue << "\n";
     currentValue = Value::makeVoid();
     return;
   }
 
   if (call->functionName == "print_bool") {
+    if (call->args.size() != 1) throw std::runtime_error("print_bool expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << (v.boolValue ? "true" : "false") << std::endl;
+    std::cout << (v.boolValue ? "1" : "0") << "\n";
     currentValue = Value::makeVoid();
     return;
   }
 
   if (call->functionName == "print_char") {
+    if (call->args.size() != 1) throw std::runtime_error("print_char expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << v.charValue << std::endl;
+    std::cout << v.charValue << "\n";
     currentValue = Value::makeVoid();
     return;
   }
 
   if (call->functionName == "print_string") {
+    if (call->args.size() != 1) throw std::runtime_error("print_string expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << v.stringValue << std::endl;
+    std::cout << v.stringValue << "\n";
     currentValue = Value::makeVoid();
     return;
   }
@@ -505,6 +554,9 @@ if (clsIt != classes.end()) {
 
     // 4) falls ctor existiert: call-frame, this binden, params binden, body ausführen
     if (ctor) {
+
+      CallDepthGuard guard(*this);
+
         callStack.emplace_back();
         StackFrame& newFrame = frame();
 
@@ -551,6 +603,9 @@ if (clsIt != classes.end()) {
   }
 
   // 2. Neuer StackFrame
+
+  CallDepthGuard guard(*this);
+
   callStack.emplace_back();
   StackFrame& newFrame = frame();
 
@@ -671,6 +726,9 @@ void Interpreter::visit(MethodCallExpr* mc) {
     }
 
     // 7) Call-Frame erstellen
+
+  CallDepthGuard guard(*this);
+
     callStack.emplace_back();
     StackFrame& newFrame = frame();
 
@@ -723,27 +781,27 @@ void Interpreter::visit(MethodCallExpr* mc) {
 
 // resolveVariable: liefert Cell aber nicht Value
 Cell* Interpreter::resolveVariable(const std::string& name) {
-  // Suche
-  for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
-    auto found = it->locals.find(name);
-    if (found != it->locals.end()) {
-      return found->second;
-    }
+  for (int i = (int)callStack.size() - 1; i >= 0; --i) {
+
+    // In Funktions-/Methoden-/Ctor-Calls darf Session NICHT sichtbar sein
+    if (callDepth > 0 && i == sessionIndex) continue;
+
+    auto found = callStack[i].locals.find(name);
+    if (found != callStack[i].locals.end()) return found->second;
   }
-  // fehler bei undefinierter Variable
   throw std::runtime_error("Undefined variable: " + name);
 }
 
 Cell* Interpreter::resolveLValue(Expr* e) {
   if (auto* v = dynamic_cast<VarExpr*>(e)) {
 
-    // 1) normale Variable (lokal / outer scopes)
-    for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
-      auto found = it->locals.find(v->name);
-      if (found != it->locals.end()) return found->second;
+    // 1) normale Variable (mit Session-Sichtbarkeitsregel!)
+    try {
+      return resolveVariable(v->name);
+    } catch (...) {
+      // 2) fallback this.<field>
     }
 
-    // 2) fallback: this.<field> (für ctor/method bodies)
     Cell* thisCell = nullptr;
     for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
       auto f = it->locals.find("this");
@@ -772,7 +830,6 @@ Cell* Interpreter::resolveLValue(Expr* e) {
 
   throw std::runtime_error("Assignment target must be lvalue");
 }
-
 
 static std::string normalizeType(std::string t) {
   // entfernt alle '&' und Spaces (einfach, reicht fuer dein Projekt)

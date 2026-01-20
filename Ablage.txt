@@ -6,4 +6,11 @@ java -jar antlr-4.12.0-complete.jar -Dlanguage=Cpp src/grammar/cpp.g4 -o gen
 
 
 
+int add(int a,int b){return a+b;}
+int x=5;
+int y=7;
+print_int(add(x,y));
 
+
+
+.\cmake-build-debug\Mini_Projekt_C___Interpreter.exe .\tests\pos\GOLD01_basics.cpp
