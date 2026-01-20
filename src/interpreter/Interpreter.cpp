@@ -4,6 +4,13 @@
 #include <stdexcept>
 #include <iostream>
 #include <ostream>
+#include "runtime/Object.h"
+#include <algorithm>
+#include <cctype>
+#include <functional>
+
+static std::string normalizeType(std::string t);
+static bool isBuiltinType(const std::string& t);
 
 // Konstruktor: Beim Start wird ein StackFrame erzeugt
 Interpreter::Interpreter() {
@@ -26,6 +33,16 @@ void Interpreter::run(Program* program) {
   // 2. Funktionen registrieren
   for (auto* f : program->functions) {
     functions[f->name] = f;
+  }
+
+  // Methoden aus Klassenmitgliedern registrieren
+  for (auto* c : program->classes) {
+    for (auto* m : c->members) {
+      if (auto* fn = dynamic_cast<FunctionDecl*>(m)) {
+        std::string key = c->name + "::" + fn->name;
+        functions[key] = fn;
+      }
+    }
   }
 
   // 3. Top-Level Statements ausführen (falls vorhanden)
@@ -151,9 +168,41 @@ void Interpreter::visit(StringLiteral* lit) {
 
 // Variablen-Zugriff
 void Interpreter::visit(VarExpr* var) {
-  Cell* cell = resolveVariable(var->name);
-  currentValue = cell->get();
+  // 1) lokale Variable?
+  for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
+    auto found = it->locals.find(var->name);
+    if (found != it->locals.end()) {
+      currentValue = found->second->get();
+      return;
+    }
+  }
+
+  // 2) fallback: field von this?
+  // 2) fallback: field von this?
+  Cell* thisCell = nullptr;
+  for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
+    auto f = it->locals.find("this");
+    if (f != it->locals.end()) {
+      thisCell = f->second;
+      break;
+    }
+  }
+
+  if (thisCell) {
+    Value thisV = thisCell->get();
+    if (thisV.kind == ValueKind::Object) {
+      auto fit = thisV.objectValue->fields.find(var->name);
+      if (fit != thisV.objectValue->fields.end()) {
+        currentValue = fit->second->get();
+        return;
+      }
+    }
+  }
+
+
+  throw std::runtime_error("Undefined variable: " + var->name);
 }
+
 
 
 // --------------------
@@ -167,43 +216,176 @@ void Interpreter::execStmt(Stmt* stmt) {
 
 // Variablendeklaration: Neue Variable -> neue Cell
 void Interpreter::visit(VarDecl* decl) {
+    const std::string declType = normalizeType(decl->type);
 
-  // Referenz?
-  if (decl->isRef) {
+    // --- Referenzvariable ---
+    if (decl->isRef) {
+        if (!decl->initExpr) throw std::runtime_error("Reference must be initialized");
 
-    if (!decl->initExpr)
-      throw std::runtime_error("Reference must be initialized");
+        auto* varExpr = dynamic_cast<VarExpr*>(decl->initExpr);
+        if (!varExpr) throw std::runtime_error("Reference must bind to variable");
 
-    // Initialwert MUSS Variable sein
-    auto* varExpr = dynamic_cast<VarExpr*>(decl->initExpr);
-    if (!varExpr)
-      throw std::runtime_error("Reference must bind to variable");
+        Cell* target = resolveVariable(varExpr->name);
 
-    Cell* target = resolveVariable(varExpr->name);
+        Cell* cell = new Cell();
+        cell->alias = target;
+        cell->staticType = declType;
 
+        frame().locals[decl->name] = cell;
+        return;
+    }
+
+    // --- Normale Variable ---
     Cell* cell = new Cell();
-    cell->alias = target;   // ← DAS ist der Trick
+    cell->staticType = declType;
 
+    // =========================================================
+    // 1) MIT initExpr
+    // =========================================================
+    if (decl->initExpr) {
+        Value v = evalExpr(decl->initExpr);
+
+        // Builtins
+        if (v.kind != ValueKind::Object) {
+            cell->value = v;
+            frame().locals[decl->name] = cell;
+            return;
+        }
+
+        // Objekt-Init (Copy / Slicing)
+        const std::string dstType = declType;
+        const std::string srcDyn  = normalizeType(v.objectValue->dynamicClass);
+
+        // Slicing?
+        if (dstType != srcDyn) {
+            if (!isBaseOf(dstType, srcDyn)) {
+                throw std::runtime_error("Cannot init " + dstType + " from " + srcDyn);
+            }
+
+            auto newObj = std::make_shared<Object>();
+            newObj->dynamicClass = dstType;
+
+            for (auto* fieldDecl : collectFields(dstType)) {
+                const std::string fname = fieldDecl->name;
+
+                auto itF = v.objectValue->fields.find(fname);
+                if (itF == v.objectValue->fields.end())
+                    throw std::runtime_error("Missing field in source object: " + fname);
+
+                Cell* fcell = new Cell();
+                fcell->staticType = normalizeType(fieldDecl->type);
+                fcell->value = itF->second->get(); // value copy
+                newObj->fields[fname] = fcell;
+            }
+
+            Value nv;
+            nv.kind = ValueKind::Object;
+            nv.objectValue = newObj;
+
+            cell->value = nv;
+            frame().locals[decl->name] = cell;
+            return;
+        }
+
+        // gleicher Typ -> deep copy
+        auto newObj = std::make_shared<Object>();
+        newObj->dynamicClass = srcDyn;
+
+        for (auto* fieldDecl : collectFields(srcDyn)) {
+            const std::string fname = fieldDecl->name;
+
+            auto itF = v.objectValue->fields.find(fname);
+            if (itF == v.objectValue->fields.end())
+                throw std::runtime_error("Missing field in source object: " + fname);
+
+            Cell* fcell = new Cell();
+            fcell->staticType = normalizeType(fieldDecl->type);
+            fcell->value = itF->second->get();
+            newObj->fields[fname] = fcell;
+        }
+
+        Value nv;
+        nv.kind = ValueKind::Object;
+        nv.objectValue = newObj;
+
+        cell->value = nv;
+        frame().locals[decl->name] = cell;
+        return;
+    }
+
+    // =========================================================
+    // 2) OHNE initExpr  (Default-Konstruktion)
+    // =========================================================
+    if (declType == "int") {
+        cell->value = Value::makeInt(0);
+        frame().locals[decl->name] = cell;
+        return;
+    }
+    if (declType == "bool") {
+        cell->value = Value::makeBool(false);
+        frame().locals[decl->name] = cell;
+        return;
+    }
+    if (declType == "char") {
+        cell->value = Value::makeChar('\0');
+        frame().locals[decl->name] = cell;
+        return;
+    }
+    if (declType == "string") {
+        cell->value = Value::makeString("");
+        frame().locals[decl->name] = cell;
+        return;
+    }
+
+    // --- Klassenobjekt anlegen ---
+    auto clsIt = classes.find(declType);
+    if (clsIt == classes.end()) throw std::runtime_error("Unknown type: " + declType);
+
+    auto obj = std::make_shared<Object>();
+    obj->dynamicClass = declType;
+
+    for (auto* fieldDecl : collectFields(declType)) {
+        Cell* fcell = new Cell();
+        const std::string ft = normalizeType(fieldDecl->type);
+        fcell->staticType = ft;
+
+        if (ft == "int") fcell->value = Value::makeInt(0);
+        else if (ft == "bool") fcell->value = Value::makeBool(false);
+        else if (ft == "char") fcell->value = Value::makeChar('\0');
+        else if (ft == "string") fcell->value = Value::makeString("");
+        else fcell->value = Value::makeVoid();
+
+        obj->fields[fieldDecl->name] = fcell;
+    }
+
+    Value objV;
+    objV.kind = ValueKind::Object;
+    objV.objectValue = obj;
+    cell->value = objV;
+
+    // Variable ist jetzt sichtbar
     frame().locals[decl->name] = cell;
-    return;
-  }
 
-  // Normale Variable
-  Cell* cell = new Cell();
-  if (decl->initExpr) {
-    cell->value = evalExpr(decl->initExpr);
-  } else {
-    cell->value = Value::makeInt(0);
-  }
+    // Default-ctor Point() ausführen, falls existiert
+    if (FunctionDecl* ctor = findCtor(declType, 0)) {
+        callStack.emplace_back();
+        StackFrame& newFrame = frame();
 
-  frame().locals[decl->name] = cell;
+        Cell* thisCell = new Cell();
+        thisCell->value = objV;
+        thisCell->staticType = declType;
+        newFrame.locals["this"] = thisCell;
+
+        try { execStmt(ctor->body); }
+        catch (ReturnSignal&) { /* ctor return ignorieren */ }
+
+        callStack.pop_back();
+    }
 }
-
-
 
 // Zuweisung: Findet Cell der Variable
 void Interpreter::visit(AssignExpr* assign) {
-  Cell* target = resolveVariable(assign->name);
+  Cell* target = resolveLValue(assign->target);
   // Schreibt neue Value in bestehende Cell
   Value rhs = evalExpr(assign->expr);
   target->get() = rhs;
@@ -280,6 +462,81 @@ void Interpreter::visit(CallExpr* call) {
     return;
   }
 
+  // --- Constructor call?  Point(3,4) ---
+  //std::cerr << "CtorCheck: [" << call->functionName << "]\n";
+auto clsIt = classes.find(call->functionName);
+if (clsIt != classes.end()) {
+
+    const std::string className = call->functionName;
+
+    // 1) Objekt erstellen + Felder anlegen (wie bei VarDecl-Klassenobjekt)
+    auto obj = std::make_shared<Object>();
+    obj->dynamicClass = className;
+
+    // Felder (inkl Basen) anlegen – du hast sowas schon in VarDecl, am besten als Helper auslagern.
+    for (auto* fieldDecl : collectFields(className)) {
+        Cell* fcell = new Cell();
+        fcell->staticType = normalizeType(fieldDecl->type);
+
+        const std::string ft = fcell->staticType;
+        if (ft == "int") fcell->value = Value::makeInt(0);
+        else if (ft == "bool") fcell->value = Value::makeBool(false);
+        else if (ft == "char") fcell->value = Value::makeChar('\0');
+        else if (ft == "string") fcell->value = Value::makeString("");
+        else fcell->value = Value::makeVoid();
+
+        obj->fields[fieldDecl->name] = fcell;
+    }
+
+    Value objV;
+    objV.kind = ValueKind::Object;
+    objV.objectValue = obj;
+
+    // 2) ctor suchen nach Argumentanzahl
+    FunctionDecl* ctor = findCtor(className, call->args.size());
+  if (!ctor && call->args.size() != 0) {
+    throw std::runtime_error("No matching constructor: " + className +
+                             "(" + std::to_string(call->args.size()) + ")");
+  }
+
+    // 3) Argumente auswerten
+    std::vector<Value> argValues;
+    for (auto* a : call->args) argValues.push_back(evalExpr(a));
+
+    // 4) falls ctor existiert: call-frame, this binden, params binden, body ausführen
+    if (ctor) {
+        callStack.emplace_back();
+        StackFrame& newFrame = frame();
+
+        Cell* thisCell = new Cell();
+        thisCell->value = objV;
+        thisCell->staticType = className;
+        newFrame.locals["this"] = thisCell;
+
+        for (size_t i = 0; i < ctor->params.size(); ++i) {
+            Param* param = ctor->params[i];
+            const std::string pType = normalizeType(param->type);
+
+            Cell* cell = new Cell();
+            cell->value = argValues[i];
+            cell->staticType = pType;
+            newFrame.locals[param->name] = cell;
+        }
+
+        try {
+            execStmt(ctor->body);
+        } catch (ReturnSignal&) {
+            // ctor return ignorieren / verbieten
+        }
+
+        callStack.pop_back();
+    }
+
+    // 5) Ergebnis ist das Objekt
+    currentValue = objV;
+    return;
+}
+
   auto it = functions.find(call->functionName);
   if (it == functions.end()) {
     throw std::runtime_error("Unknown function: " + call->functionName);
@@ -300,9 +557,9 @@ void Interpreter::visit(CallExpr* call) {
   // 3. Parameter binden
   for (size_t i = 0; i < func->params.size(); ++i) {
     Param* param = func->params[i];
+    const std::string pType = normalizeType(param->type);
 
-    if (func->params[i]->isRef) {
-      // Argument MUSS Variable sein
+    if (param->isRef) {
       auto* varExpr = dynamic_cast<VarExpr*>(call->args[i]);
       if (!varExpr)
         throw std::runtime_error("Reference parameter requires variable");
@@ -310,16 +567,18 @@ void Interpreter::visit(CallExpr* call) {
       Cell* target = resolveVariable(varExpr->name);
 
       Cell* cell = new Cell();
-      cell->alias = target;   // ← Alias
+      cell->alias = target;
+      cell->staticType = pType;                     // << WICHTIG: Base bei Base& p
 
-      newFrame.locals[func->params[i]->name] = cell;
+      newFrame.locals[param->name] = cell;
     } else {
       Cell* cell = new Cell();
       cell->value = argValues[i];
-      newFrame.locals[func->params[i]->name] = cell;
+      cell->staticType = pType;                     // << WICHTIG: auch bei Value-Param
+
+      newFrame.locals[param->name] = cell;
     }
   }
-
 
   // 4. Body ausführen + Return abfangen
   try {
@@ -343,6 +602,121 @@ void Interpreter::visit(ExprStmt* stmt) {
   evalExpr(stmt->expr);
 }
 
+void Interpreter::visit(FieldExpr* fe) {
+  Cell* c = resolveLValue(fe);   // liefert Field-Cell
+  currentValue = c->get();
+}
+
+void Interpreter::visit(MethodCallExpr* mc) {
+    // 1) Objekt auswerten
+    Value objV = evalExpr(mc->object);
+    if (objV.kind != ValueKind::Object) {
+        throw std::runtime_error("Method call on non-object");
+    }
+
+    // 2) statischen Typ bestimmen (für static dispatch)
+    std::string staticType;
+
+    // Falls object ein VarExpr ist, nehmen wir dessen Cell->staticType
+    if (auto* v = dynamic_cast<VarExpr*>(mc->object)) {
+        Cell* c = resolveVariable(v->name);
+        staticType = c->staticType;
+    } else {
+        // Fallback: wenn wir den statischen Typ nicht kennen, nimm dynamicClass
+        staticType = objV.objectValue->dynamicClass;
+    }
+
+    staticType = normalizeType(staticType);
+
+    // 3) dyn. Typ bestimmen (für virtual dispatch)
+    std::string dynamicType = normalizeType(objV.objectValue->dynamicClass);
+
+    // 4) Methode anhand staticType suchen (damit wir wissen, ob virtual)
+    //    Wir suchen entlang der Vererbungskette.
+    auto findMethodInClassChain = [&](const std::string& startClass) -> FunctionDecl* {
+        std::string cur = startClass;
+        while (!cur.empty()) {
+            auto it = functions.find(cur + "::" + mc->method);
+            if (it != functions.end()) return it->second;
+
+            auto cit = classes.find(cur);
+            if (cit == classes.end()) break;
+            cur = cit->second->baseName;
+        }
+        return nullptr;
+    };
+
+    FunctionDecl* staticMethod = findMethodInClassChain(staticType);
+    if (!staticMethod) {
+        throw std::runtime_error("Unknown method: " + staticType + "::" + mc->method);
+    }
+
+    // 5) Zielmethode wählen
+    FunctionDecl* targetMethod = staticMethod;
+
+    if (staticMethod->isVirtual) {
+        // virtual -> dynamic dispatch: in dynamicType suchen (auch entlang base chain)
+        FunctionDecl* dynMethod = findMethodInClassChain(dynamicType);
+        if (!dynMethod) {
+            // Wenn Der keine override hat, fällt es auf Base zurück
+            dynMethod = staticMethod;
+        }
+        targetMethod = dynMethod;
+    }
+
+    // 6) Argumente auswerten
+    std::vector<Value> argValues;
+    for (auto* a : mc->args) {
+        argValues.push_back(evalExpr(a));
+    }
+
+    // 7) Call-Frame erstellen
+    callStack.emplace_back();
+    StackFrame& newFrame = frame();
+
+    // 8) implizites this binden
+    Cell* thisCell = new Cell();
+    thisCell->value = objV;
+    thisCell->staticType = targetMethod->ownerClass; // "Base" oder "Der" (passend zum Body)
+    newFrame.locals["this"] = thisCell;
+
+    // 9) normale Parameter binden (wie bei CallExpr)
+    for (size_t i = 0; i < targetMethod->params.size(); ++i) {
+        Param* param = targetMethod->params[i];
+        const std::string pType = normalizeType(param->type);
+
+        if (param->isRef) {
+            auto* varExpr = dynamic_cast<VarExpr*>(mc->args[i]);
+            if (!varExpr)
+                throw std::runtime_error("Reference parameter requires variable");
+
+            Cell* target = resolveVariable(varExpr->name);
+
+            Cell* cell = new Cell();
+            cell->alias = target;
+            cell->staticType = pType;
+            newFrame.locals[param->name] = cell;
+        } else {
+            Cell* cell = new Cell();
+            cell->value = argValues[i];
+            cell->staticType = pType;
+            newFrame.locals[param->name] = cell;
+        }
+    }
+
+    // 10) Body ausführen + return abfangen
+    try {
+        execStmt(targetMethod->body);
+        currentValue = Value::makeVoid();
+    }
+    catch (ReturnSignal& r) {
+        currentValue = r.value;
+    }
+
+    callStack.pop_back();
+}
+
+
 // --------------------
 // Helpers
 // --------------------
@@ -359,3 +733,104 @@ Cell* Interpreter::resolveVariable(const std::string& name) {
   // fehler bei undefinierter Variable
   throw std::runtime_error("Undefined variable: " + name);
 }
+
+Cell* Interpreter::resolveLValue(Expr* e) {
+  if (auto* v = dynamic_cast<VarExpr*>(e)) {
+
+    // 1) normale Variable (lokal / outer scopes)
+    for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
+      auto found = it->locals.find(v->name);
+      if (found != it->locals.end()) return found->second;
+    }
+
+    // 2) fallback: this.<field> (für ctor/method bodies)
+    Cell* thisCell = nullptr;
+    for (auto it = callStack.rbegin(); it != callStack.rend(); ++it) {
+      auto f = it->locals.find("this");
+      if (f != it->locals.end()) { thisCell = f->second; break; }
+    }
+
+    if (thisCell) {
+      Value thisV = thisCell->get();
+      if (thisV.kind == ValueKind::Object) {
+        auto fit = thisV.objectValue->fields.find(v->name);
+        if (fit != thisV.objectValue->fields.end()) return fit->second;
+      }
+    }
+
+    throw std::runtime_error("Undefined variable: " + v->name);
+  }
+
+  if (auto* f = dynamic_cast<FieldExpr*>(e)) {
+    Value objV = evalExpr(f->object);
+    if (objV.kind != ValueKind::Object) throw std::runtime_error("Field access on non-object");
+    auto& fields = objV.objectValue->fields;
+    auto it = fields.find(f->field);
+    if (it == fields.end()) throw std::runtime_error("Unknown field: " + f->field);
+    return it->second;
+  }
+
+  throw std::runtime_error("Assignment target must be lvalue");
+}
+
+
+static std::string normalizeType(std::string t) {
+  // entfernt alle '&' und Spaces (einfach, reicht fuer dein Projekt)
+  t.erase(std::remove(t.begin(), t.end(), '&'), t.end());
+  t.erase(std::remove_if(t.begin(), t.end(),
+    [](unsigned char ch){ return std::isspace(ch); }), t.end());
+  return t;
+}
+
+static bool isBuiltinType(const std::string& t) {
+  return t == "int" || t == "bool" || t == "char" || t == "string" || t == "void";
+}
+
+bool Interpreter::isBaseOf(const std::string& base, const std::string& derived) {
+  std::string cur = derived;
+  while (!cur.empty()) {
+    if (cur == base) return true;
+    auto it = classes.find(cur);
+    if (it == classes.end()) break;
+    cur = it->second->baseName;
+  }
+  return false;
+}
+
+// sammelt Felder der Klasse + ihrer Basen (Base zuerst oder egal, Hauptsache eindeutig)
+std::vector<VarDecl*> Interpreter::collectFields(const std::string& clsName) {
+  std::vector<VarDecl*> out;
+  auto it = classes.find(clsName);
+  if (it == classes.end()) return out;
+
+  ClassDecl* c = it->second;
+  if (!c->baseName.empty()) {
+    auto baseFields = collectFields(c->baseName);
+    out.insert(out.end(), baseFields.begin(), baseFields.end());
+  }
+
+  for (auto* m : c->members) {
+    if (auto* f = dynamic_cast<VarDecl*>(m)) out.push_back(f);
+  }
+  return out;
+}
+
+FunctionDecl* Interpreter::findCtor(const std::string& classNameRaw, size_t argc) {
+  const std::string className = normalizeType(classNameRaw);
+
+  auto cit = classes.find(className);
+  if (cit == classes.end()) return nullptr;
+
+  for (auto* m : cit->second->members) {
+    auto* fn = dynamic_cast<FunctionDecl*>(m);
+    if (!fn) continue;
+
+    if (normalizeType(fn->ownerClass) == className &&
+        fn->name == className &&
+        fn->params.size() == argc) {
+      return fn;
+        }
+  }
+  return nullptr;
+}
+

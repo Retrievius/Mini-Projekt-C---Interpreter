@@ -51,9 +51,12 @@ struct ASTPrinter : public ASTVisitor {
 
     void visit(AssignExpr* expr) override {
         printIndent();
-        std::cout << "AssignExpr: " << expr->name << "\n";
+        std::cout << "AssignExpr\n";
         indent++;
-        expr->expr->accept(this);
+        printIndent(); std::cout << "Target:\n";
+        indent++; expr->target->accept(this); indent--;
+        printIndent(); std::cout << "Value:\n";
+        indent++; expr->expr->accept(this); indent--;
         indent--;
     }
 
@@ -149,6 +152,24 @@ struct ASTPrinter : public ASTVisitor {
     void visit(StringLiteral* lit) override {
         printIndent();
         std::cout << "StringLiteral: \"" << lit->value << "\"\n";
+    }
+
+    void visit(FieldExpr* e) override {
+        printIndent();
+        std::cout << "FieldExpr: ." << e->field << "\n";
+        indent++;
+        e->object->accept(this);
+        indent--;
+    }
+
+    void visit(MethodCallExpr* e) override {
+        printIndent();
+        std::cout << "MethodCallExpr: " << e->method << "\n";
+        indent++;
+        printIndent(); std::cout << "Object:\n";
+        indent++; e->object->accept(this); indent--;
+        for (auto* a : e->args) a->accept(this);
+        indent--;
     }
 
 

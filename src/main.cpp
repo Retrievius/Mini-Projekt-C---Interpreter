@@ -11,6 +11,7 @@
 #include "ast/ASTBuilder.h"
 #include "interpreter/Interpreter.h"
 #include "ast/PrettyPrinter.h"
+//#include "semantic/SemanticChecker.h"
 
 // Datei einlesen
 std::string readFile(const std::string& path) {
@@ -60,6 +61,16 @@ int main() {
             stmt->accept(&printer);
 
         std::cout << "---------------\n";
+
+        /*
+        try {
+            SemanticChecker sem;
+            sem.checkProgram(prog);
+        } catch (std::exception& e) {
+            std::cerr << e.what() << "\n";
+            return 1;
+        }
+        */
 
         // Interpreter ausführen
         std::cout << "----- Interpreter Output -----\n";

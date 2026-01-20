@@ -99,6 +99,13 @@ public:
         return *match;
     }
 
+    const std::vector<FunctionSymbol>& getOverloads(const std::string& name) const {
+        static const std::vector<FunctionSymbol> empty;
+        auto it = functions.find(name);
+        if (it == functions.end()) return empty;
+        return it->second;
+    }
+
 private:
     static bool sameSignature(const FunctionSymbol& a,
                               const FunctionSymbol& b) {

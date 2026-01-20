@@ -1,0 +1,9 @@
+
+
+
+
+java -jar antlr-4.12.0-complete.jar -Dlanguage=Cpp src/grammar/cpp.g4 -o gen
+
+
+
+
