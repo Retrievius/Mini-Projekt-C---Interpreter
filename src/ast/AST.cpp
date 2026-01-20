@@ -1,5 +1,7 @@
 #include "AST.h"
 
+void Program::accept(ASTVisitor* v) { v->visit(this); }
+
 // Expressions
 void IntLiteral::accept(ASTVisitor* v) { v->visit(this); }
 void UnaryExpr::accept(ASTVisitor* v) { v->visit(this); }
