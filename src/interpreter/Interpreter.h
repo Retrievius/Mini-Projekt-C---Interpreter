@@ -44,6 +44,8 @@ public:
   void visit(BoolLiteral *) override;
   void visit(CharLiteral *) override;
   void visit(StringLiteral *) override;
+  void visit(FieldExpr *) override;
+  void visit(MethodCallExpr *) override;
 
 
 
@@ -60,10 +62,16 @@ private:
   StackFrame& frame();
 // Sucht eine Variable und gibt Cell zurück
   Cell* resolveVariable(const std::string& name);
+  Cell* resolveLValue(Expr* e);
 
   std::unordered_map<std::string, FunctionDecl*> functions;
 
   std::unordered_map<std::string, ClassDecl*> classes;
+
+  bool isBaseOf(const std::string& base, const std::string& derived);
+  std::vector<VarDecl*> collectFields(const std::string& clsName);
+
+  FunctionDecl* findCtor(const std::string& className, size_t argc);
 
 };
 

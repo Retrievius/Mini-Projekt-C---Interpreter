@@ -33,25 +33,23 @@ using namespace cppParser;
 // Statements
 Stmt* ASTBuilder::visitStmt(cppParser::StmtContext* ctx) {
     if (ctx->vardecl()) {
+        std::string type = ctx->vardecl()->type()->getText();
         std::string name = ctx->vardecl()->ID()->getText();
         auto* expr = ctx->vardecl()->expr() ? visitExpr(ctx->vardecl()->expr()) : nullptr;
 
-        auto* decl = new VarDecl(name, expr);
-
-        // WICHTIG: Referenz?
-        if (ctx->vardecl()->AMP()) {
-            decl->isRef = true;
-        }
-
+        auto* decl = new VarDecl(type, name, expr);
+        decl->isRef = (ctx->vardecl()->AMP() != nullptr);
         return decl;
 
     } else if (ctx->assign()) {
-        Expr* target = visitPostfixExpr(ctx->assign()->postfixExpr());
-        Expr* rhs = visitExpr(ctx->assign()->expr());
+        Expr* target = visitPostfixExpr(ctx->assign()->postfixExpr()); // VarExpr oder FieldExpr
+        Expr* rhs    = visitExpr(ctx->assign()->expr());
         return new AssignExpr(target, rhs);
+
     } else if (ctx->exprStmt()) {
         auto* expr = visitExpr(ctx->exprStmt()->expr());
         return new ExprStmt(expr);
+
     } else if (ctx->block()) {
         BlockStmt* block = new BlockStmt();
         for (auto* s : ctx->block()->stmt())
@@ -261,36 +259,33 @@ Expr* ASTBuilder::visitMultiplicativeExpr(MultiplicativeExprContext* ctx) {
 Expr* ASTBuilder::visitPostfixExpr(cppParser::PostfixExprContext* ctx) {
     Expr* base = visitPrimaryExpr(ctx->primaryExpr());
 
+    // wir laufen über die Suffixe in Reihenfolge:
+    // primaryExpr (memberAccess | call)*
     for (size_t i = 1; i < ctx->children.size(); ++i) {
         auto* child = ctx->children[i];
 
-        // memberAccess: . ID
         if (auto* mem = dynamic_cast<cppParser::MemberAccessContext*>(child)) {
             std::string field = mem->ID()->getText();
             base = new FieldExpr(base, field);
             continue;
         }
 
-        // call: ( args? )
         if (auto* call = dynamic_cast<cppParser::CallContext*>(child)) {
-
-            // freier Funktionscall: f(...)
+            // Fall 1: base ist VarExpr => normaler Funktionsaufruf
             if (auto* var = dynamic_cast<VarExpr*>(base)) {
                 auto* c = new CallExpr(var->name);
                 if (call->args()) {
-                    for (auto* a : call->args()->expr())
-                        c->args.push_back(visitExpr(a));
+                    for (auto* a : call->args()->expr()) c->args.push_back(visitExpr(a));
                 }
                 base = c;
                 continue;
             }
 
-            // Methodenaufruf: obj.m(...)
+            // Fall 2: base ist FieldExpr => Methodenaufruf obj.m(...)
             if (auto* fe = dynamic_cast<FieldExpr*>(base)) {
                 auto* mc = new MethodCallExpr(fe->object, fe->field);
                 if (call->args()) {
-                    for (auto* a : call->args()->expr())
-                        mc->args.push_back(visitExpr(a));
+                    for (auto* a : call->args()->expr()) mc->args.push_back(visitExpr(a));
                 }
                 base = mc;
                 continue;
@@ -302,6 +297,7 @@ Expr* ASTBuilder::visitPostfixExpr(cppParser::PostfixExprContext* ctx) {
 
     return base;
 }
+
 
 FunctionDecl* ASTBuilder::visitFnDecl(cppParser::FnDeclContext* ctx) {
     auto* fn = new FunctionDecl();
@@ -316,6 +312,8 @@ FunctionDecl* ASTBuilder::visitFnDecl(cppParser::FnDeclContext* ctx) {
     }
 
     fn->body = visitBlock(ctx->block());
+
+    fn->returnType = ctx->type()->getText();
 
     return fn;
 }
@@ -342,6 +340,55 @@ BlockStmt* ASTBuilder::visitBlock(cppParser::BlockContext* ctx) {
 
 ClassDecl* ASTBuilder::visitClassDecl(cppParser::ClassDeclContext* ctx) {
     auto* cls = new ClassDecl();
-    cls->name = ctx->ID(0)->getText(); // Klassenname
+    cls->name = ctx->ID(0)->getText();
+
+    // optional ": public Base"
+    if (ctx->ID().size() > 1) cls->baseName = ctx->ID(1)->getText();
+
+    auto* body = ctx->classBody();
+
+    // classMember*
+    for (auto* m : body->classMember()) {
+
+        if (m->fieldDecl()) {
+            std::string t = m->fieldDecl()->type()->getText();
+            std::string n = m->fieldDecl()->ID()->getText();
+            cls->members.push_back(new VarDecl(t, n));
+        }
+        else if (m->methodDecl()) {
+            auto* md = m->methodDecl();
+            auto* fn = new FunctionDecl();
+            fn->ownerClass = cls->name;
+            fn->isVirtual = (md->getText().rfind("virtual", 0) == 0);
+            fn->returnType = md->type()->getText();
+            fn->name       = md->ID()->getText();
+
+            if (md->params()) {
+                for (auto* p : md->params()->param()) fn->params.push_back(visitParam(p));
+            }
+            fn->body = visitBlock(md->block());
+
+            cls->members.push_back(fn);
+        }
+        else if (m->ctorDecl()) {
+            auto* cd = m->ctorDecl();
+
+            auto* fn = new FunctionDecl();
+            fn->ownerClass = cls->name;
+            fn->returnType = "void";     // ctors liefern nichts (in deinem Modell)
+            fn->name       = cd->ID()->getText(); // = Klassenname
+            fn->isVirtual  = false;      // ctor ist nicht virtual
+            // optional: Flag fn->isConstructor = true; (falls du eins einführen willst)
+
+            if (cd->params()) {
+                for (auto* p : cd->params()->param()) fn->params.push_back(visitParam(p));
+            }
+            fn->body = visitBlock(cd->block());
+
+            cls->members.push_back(fn);
+        }
+    }
+
     return cls;
 }
+
