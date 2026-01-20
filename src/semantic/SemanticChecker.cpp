@@ -215,7 +215,10 @@ void SemanticChecker::visit(StringLiteral* lit) {
 
 void SemanticChecker::visit(VarExpr* var) {
     auto sym = symbols.lookupVar(var->name);
-    lastType = sym.type;
+
+    // Expression-Typ: references decayen (C++: `int& r; r` hat Typ `int`)
+    lastType = sym.type.isRef() ? sym.type.refType() : sym.type;
+
     lastIsLValue = true;
 }
 
@@ -225,10 +228,13 @@ void SemanticChecker::visit(FieldExpr* fe) {
     Type objT0 = evalExpr(fe->object);
     Type objT  = decay(objT0);
 
-    require(objT.kind == TypeKind::Class, "Field access on non-class type: " + objT0.toString());
+    require(objT.kind == TypeKind::Class,
+            "Field access on non-class type: " + objT0.toString());
 
-    Type ft = lookupFieldType(objT.className, fe->field);
-    lastType = ft;
+    Type ft0 = lookupFieldType(objT.className, fe->field);
+
+    // Feld als Expression ebenfalls decayen (falls du irgendwann ref-fields hast)
+    lastType = decay(ft0);
     lastIsLValue = true;
 }
 
@@ -253,14 +259,17 @@ void SemanticChecker::visit(BinaryExpr* e) {
     Type l0 = evalExpr(e->lhs);
     Type r0 = evalExpr(e->rhs);
 
+    // ref-decay für Ausdruck-Operatoren
     Type l = l0.isRef() ? l0.refType() : l0;
     Type r = r0.isRef() ? r0.refType() : r0;
 
     lastIsLValue = false;
 
-    require(l.equals(r), "Binary operands must have same type (" + l.toString() + " vs " + r.toString() + ")");
+    require(l.equals(r),
+            "Binary operands must have same type (" + l.toString() + " vs " + r.toString() + ")");
 
     switch (e->op) {
+        // Arithmetik: int
         case BinaryExpr::BinaryOp::Add:
         case BinaryExpr::BinaryOp::Sub:
         case BinaryExpr::BinaryOp::Mul:
@@ -270,6 +279,7 @@ void SemanticChecker::visit(BinaryExpr* e) {
             lastType = Type::Int();
             return;
 
+            // Vergleiche: int -> bool
         case BinaryExpr::BinaryOp::Lt:
         case BinaryExpr::BinaryOp::Le:
         case BinaryExpr::BinaryOp::Gt:
@@ -278,6 +288,16 @@ void SemanticChecker::visit(BinaryExpr* e) {
             lastType = Type::Bool();
             return;
 
+            // Gleichheit: in euren Tests vor allem int/bool/char/string
+        case BinaryExpr::BinaryOp::Eq:
+        case BinaryExpr::BinaryOp::Neq:
+            require(l.equals(Type::Int()) || l.equals(Type::Bool()) ||
+                    l.equals(Type::Char()) || l.equals(Type::String()),
+                    "==/!= allowed for int/bool/char/string");
+            lastType = Type::Bool();
+            return;
+
+            // Logik: bool
         case BinaryExpr::BinaryOp::And:
         case BinaryExpr::BinaryOp::Or:
             require(l.equals(Type::Bool()), "&&/|| require bool");
@@ -304,40 +324,65 @@ void SemanticChecker::visit(AssignExpr* assign) {
 
 void SemanticChecker::visit(CallExpr* call) {
     auto decay = [](Type t) -> Type { return t.isRef() ? t.refType() : t; };
-    // eval args first
-    std::vector<Type> argTypes;
+
+    std::vector<Type> argTypesRaw;
     std::vector<bool> argIsLValue;
-    argTypes.reserve(call->args.size());
+    argTypesRaw.reserve(call->args.size());
     argIsLValue.reserve(call->args.size());
 
     for (auto* a : call->args) {
         a->accept(this);
-        argTypes.push_back(lastType);
+        argTypesRaw.push_back(lastType);     // lastType ist bei VarExpr schon decayed
         argIsLValue.push_back(lastIsLValue);
     }
 
-    // constructor call? (CallExpr("Point") => class)
+    // --- constructor call? ---
     if (getClass(call->functionName)) {
-        const auto* ctor = lookupCtor(call->functionName, argTypes);
-        // if no ctor found: allow only if zero-args exists implicitly? in your runtime you *need* a ctor body only if defined.
-        // We'll be permissive: if no matching ctor found, allow only if args empty.
+        const ClassInfo* ci = getClass(call->functionName);
+
+        // ctor lookup uses exact types (in deiner classTable)
+        const auto* ctor = lookupCtor(call->functionName, argTypesRaw);
         if (!ctor) {
-            require(argTypes.empty(), "No matching constructor for class: " + call->functionName);
+            // implicit default ctor allowed ONLY if no ctors declared and no args
+            if (!(argTypesRaw.empty() && ci && ci->ctors.empty())) {
+                require(false, "No matching constructor for class: " + call->functionName);
+            }
         }
         lastType = Type::Class(call->functionName);
         lastIsLValue = false;
         return;
     }
 
-    // builtin + free functions
-    FunctionSymbol fn = symbols.lookupFunction(call->functionName, argTypes);
+    // --- free function call ---
+    // Overload resolution: value-params match with decayed types
+    std::vector<Type> argTypesDecayed;
+    argTypesDecayed.reserve(argTypesRaw.size());
+    for (auto& t : argTypesRaw) argTypesDecayed.push_back(decay(t));
 
-    // reference parameters: arg must be LValue
+    FunctionSymbol fn = symbols.lookupFunction(call->functionName, argTypesDecayed);
+
+    // ref params: need lvalue + allow class upcast Base& <- Der
     for (size_t i = 0; i < fn.paramTypes.size(); ++i) {
-        if (fn.paramTypes[i].isRef()) {
-            require(argIsLValue[i], "Reference argument must be LValue at position " + std::to_string(i));
-            require(fn.paramTypes[i].refType().equals(decay(argTypes[i])),
-        "Reference parameter type mismatch");
+        if (!fn.paramTypes[i].isRef()) continue;
+
+        require(argIsLValue[i], "Reference argument must be LValue at position " + std::to_string(i));
+
+        Type want = fn.paramTypes[i].refType();   // Base
+        Type got  = decay(argTypesRaw[i]);        // Der
+
+        if (want.equals(got)) continue;
+
+        if (want.kind == TypeKind::Class && got.kind == TypeKind::Class) {
+            const ClassInfo* c = getClass(got.className);
+            bool ok = false;
+            while (c) {
+                if (c->name == want.className) { ok = true; break; }
+                if (c->base.empty()) break;
+                c = getClass(c->base);
+            }
+            require(ok, "Reference parameter type mismatch");
+        } else {
+            require(false, "Reference parameter type mismatch");
         }
     }
 
@@ -390,33 +435,49 @@ void SemanticChecker::visit(ExprStmt* stmt) {
 }
 
 void SemanticChecker::visit(VarDecl* decl) {
-    // declared type from AST
+    auto decay = [](Type t) -> Type { return t.isRef() ? t.refType() : t; };
+
     Type varT = parseTypeString(decl->type, decl->isRef);
 
-    // if class type, ensure it exists
     if (varT.kind == TypeKind::Class) {
         require(getClass(varT.className) != nullptr, "Unknown class type: " + varT.className);
     }
-    if (varT.kind == TypeKind::Ref) {
-        // references to classes also allowed
-        if (varT.refType().kind == TypeKind::Class) {
-            require(getClass(varT.refType().className) != nullptr, "Unknown class type: " + varT.refType().className);
-        }
+    if (varT.kind == TypeKind::Ref && varT.refType().kind == TypeKind::Class) {
+        require(getClass(varT.refType().className) != nullptr,
+                "Unknown class type: " + varT.refType().className);
     }
 
     if (decl->initExpr) {
         decl->initExpr->accept(this);
-        Type initT = lastType;
+        Type initT0 = lastType;      // kann schon decayed sein durch VarExpr
+        Type initT  = decay(initT0);
 
         if (decl->isRef) {
-            // ref init must be LValue and base types must match
             require(lastIsLValue, "Reference must bind to LValue");
-            require(varT.refType().equals(initT), "Reference init type mismatch (" + varT.toString() + " vs " + initT.toString() + ")");
+
+            Type want = varT.refType();          // Base
+            Type got  = initT;                   // Der (decayed)
+
+            if (want.equals(got)) {
+                // ok
+            } else if (want.kind == TypeKind::Class && got.kind == TypeKind::Class) {
+                // allow Base& <- Der
+                const ClassInfo* c = getClass(got.className);
+                bool ok = false;
+                while (c) {
+                    if (c->name == want.className) { ok = true; break; }
+                    if (c->base.empty()) break;
+                    c = getClass(c->base);
+                }
+                require(ok, "Reference init type mismatch (" + varT.toString() + " vs " + got.toString() + ")");
+            } else {
+                require(false, "Reference init type mismatch (" + varT.toString() + " vs " + got.toString() + ")");
+            }
         } else {
-            // allow slicing? semantic rule: Base b = Der d; is allowed if base is base-of derived
+            // by-value init
             if (varT.kind == TypeKind::Class && initT.kind == TypeKind::Class) {
                 if (varT.className != initT.className) {
-                    // allow if base chain contains varT
+                    // allow slicing Base b = Der;
                     const ClassInfo* c = getClass(initT.className);
                     bool ok = false;
                     while (c) {
@@ -432,7 +493,6 @@ void SemanticChecker::visit(VarDecl* decl) {
         }
     }
 
-    // declare variable in current scope:
     symbols.declareVar(decl->name, varT);
 
     lastType = Type::Void();
@@ -442,16 +502,12 @@ void SemanticChecker::visit(VarDecl* decl) {
 void SemanticChecker::visit(BlockStmt* block) {
     symbols.pushScope();
 
-    bool blockAlwaysReturns = false;
     for (auto* s : block->statements) {
         s->accept(this);
-        if (currentAlwaysReturns) {
-            blockAlwaysReturns = true;
-        }
+        // optional: dead-code detection, return-path tracking etc.
     }
 
     symbols.popScope();
-    (void)blockAlwaysReturns;
 
     lastType = Type::Void();
     lastIsLValue = false;

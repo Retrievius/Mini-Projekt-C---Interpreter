@@ -13,7 +13,7 @@
 #include "ast/AST.h"
 #include "ast/ASTBuilder.h"
 #include "interpreter/Interpreter.h"
-//#include "semantic/SemanticChecker.h"
+#include "semantic/SemanticChecker.h"
 
 namespace fs = std::filesystem;
 
@@ -139,10 +139,10 @@ static RunResult runInterpreterOnCode(const std::string& code) {
             rr.exitCode = 1;
         } else {
             // optional semantic check
-            /*
+
             SemanticChecker sem;
             sem.checkProgram(prog);
-            */
+
 
             Interpreter interp;
             interp.run(prog);
@@ -296,10 +296,10 @@ static void runRepl(Interpreter& interp) {
         buffer.clear();
 
         // optional semantic: REPL define-before-use (your checker must enforce that)
-        /*
+
         SemanticChecker sem;
         sem.checkProgram(chunk);
-        */
+
 
         interp.loadProgram(chunk);
         interp.execRepl(chunk);

@@ -480,29 +480,33 @@ void Interpreter::visit(CallExpr* call) {
 
   // -------- Builtins --------
   if (call->functionName == "print_int") {
+    if (call->args.size() != 1) throw std::runtime_error("print_int expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << v.intValue << std::endl;
+    std::cout << v.intValue << "\n";
     currentValue = Value::makeVoid();
     return;
   }
 
   if (call->functionName == "print_bool") {
+    if (call->args.size() != 1) throw std::runtime_error("print_bool expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << (v.boolValue ? "true" : "false") << std::endl;
+    std::cout << (v.boolValue ? "1" : "0") << "\n";
     currentValue = Value::makeVoid();
     return;
   }
 
   if (call->functionName == "print_char") {
+    if (call->args.size() != 1) throw std::runtime_error("print_char expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << v.charValue << std::endl;
+    std::cout << v.charValue << "\n";
     currentValue = Value::makeVoid();
     return;
   }
 
   if (call->functionName == "print_string") {
+    if (call->args.size() != 1) throw std::runtime_error("print_string expects 1 argument");
     Value v = evalExpr(call->args[0]);
-    std::cout << v.stringValue << std::endl;
+    std::cout << v.stringValue << "\n";
     currentValue = Value::makeVoid();
     return;
   }
