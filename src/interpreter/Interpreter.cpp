@@ -1,5 +1,3 @@
-/* Wie arbeitet der Interpreter */
-
 #include "Interpreter.h"
 #include <stdexcept>
 #include <iostream>
@@ -50,10 +48,7 @@ void Interpreter::ensureSession() {
 
 void Interpreter::execTopLevel(Program* program) {
   ensureSession();
-  // Statements immer im Session-Frame ausführen:
-  // Wir pushen KEINEN neuen Frame, sondern nutzen den offenen session frame.
-  // Daher: temporär auf session frame "gehen", indem wir sicherstellen, dass es top ist:
-  // In unserem Modell ist session frame sowieso top, solange du keinen anderen pushst.
+
   for (auto* stmt : program->statements) {
     execStmt(stmt);
   }
@@ -63,13 +58,13 @@ void Interpreter::execRepl(Program* program) {
   ensureSession();
 
   for (auto* stmt : program->statements) {
-    // Expression-Statements auto-ausgeben
+
     if (auto* es = dynamic_cast<ExprStmt*>(stmt)) {
       Value v = evalExpr(es->expr);
 
-      // Nur nicht-void automatisch ausgeben
+
       if (v.kind != ValueKind::Void) {
-        // minimal: int/bool/char/string
+
         if (v.kind == ValueKind::Int) {
           std::cout << v.intValue << "\n";
         } else if (v.kind == ValueKind::Bool) {
@@ -79,7 +74,7 @@ void Interpreter::execRepl(Program* program) {
         } else if (v.kind == ValueKind::String) {
           std::cout << v.stringValue << "\n";
         } else {
-          // object/sonstiges: erstmal nix oder Debug
+
           std::cout << "<value>\n";
         }
       }
@@ -92,24 +87,20 @@ void Interpreter::execRepl(Program* program) {
 
 // Programmausführung
 void Interpreter::run(Program* program) {
-  // registrieren
+
   loadProgram(program);
 
-  // Top-Level Statements (falls es welche gibt): im Session scope
   execTopLevel(program);
 
-  // main() optional ausführen, aber Session offen lassen
   auto it = functions.find("main");
   if (it != functions.end()) {
     ensureSession();
 
     FunctionDecl* mainFn = it->second;
 
-    // main im Session-Frame laufen lassen (kein CallExpr, weil der einen Call-Frame pusht)
     try {
       execStmt(mainFn->body);
     } catch (ReturnSignal&) {
-      // main return ignorieren
     }
   }
 }
@@ -186,9 +177,6 @@ void Interpreter::visit(BinaryExpr* e) {
   throw std::runtime_error("Unsupported binary operator");
 }
 
-
-
-//
 void Interpreter::visit(UnaryExpr* e) {
   Value v = evalExpr(e->expr);
 
@@ -319,7 +307,7 @@ void Interpreter::visit(VarDecl* decl) {
 
                 Cell* fcell = new Cell();
                 fcell->staticType = normalizeType(fieldDecl->type);
-                fcell->value = itF->second->get(); // value copy
+                fcell->value = itF->second->get();
                 newObj->fields[fname] = fcell;
             }
 

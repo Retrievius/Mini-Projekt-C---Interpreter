@@ -111,7 +111,7 @@ struct ExprStmt : Stmt {
 };
 
 struct VarDecl : Stmt {
-    std::string type;          // NEU
+    std::string type;
     std::string name;
     Expr* initExpr = nullptr;
     bool isRef = false;
@@ -158,13 +158,13 @@ struct Param {
 };
 
 struct FunctionDecl : Stmt {
-    std::string returnType;      // NEU
+    std::string returnType;
     std::string name;
     std::vector<Param*> params;
     BlockStmt* body = nullptr;
 
-    bool isVirtual = false;      // NEU
-    std::string ownerClass;      // "" wenn freie Funktion, sonst Klassenname
+    bool isVirtual = false;
+    std::string ownerClass;
 
     void accept(ASTVisitor* visitor) override;
 };
@@ -172,7 +172,7 @@ struct FunctionDecl : Stmt {
 
 struct ClassDecl : Stmt {
     std::string name;
-    std::string baseName;              // NEU: "" wenn keine Base
+    std::string baseName;
     std::vector<Stmt*> members;
     void accept(ASTVisitor* visitor) override;
 };

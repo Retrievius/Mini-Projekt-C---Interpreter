@@ -284,7 +284,7 @@ void SemanticChecker::visit(BinaryExpr* e) {
         case BinaryExpr::BinaryOp::Le:
         case BinaryExpr::BinaryOp::Gt:
         case BinaryExpr::BinaryOp::Ge:
-            require(l.equals(Type::Int()), "<,<=,>,>= require int");
+            require(l.equals(Type::Int()) || l.equals(Type::Char()), "<,<=,>,>= require int");
             lastType = Type::Bool();
             return;
 

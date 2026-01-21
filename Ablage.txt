@@ -1,16 +1,31 @@
-
-
-
-
+Zum Generieren von Antlr:
 java -jar antlr-4.12.0-complete.jar -Dlanguage=Cpp src/grammar/cpp.g4 -o gen
 
+Am Anfang:
+$env:Path = "C:\Program Files\JetBrains\CLion 2025.2.5\bin\mingw\bin;" + $env:Path
+.\cmake-build-debug\Mini_Projekt_C___Interpreter.exe
 
+Weiter:
+.\cmake-build-debug\Mini_Projekt_C___Interpreter.exe
 
+Für alles:
+--all
+
+Für Positiv:
+--pos
+
+Für Negativ:
+--neg
+
+Für bestimmte Aufgabe:
+--file tests/pos/ oder tests/neg/ und Name
+
+Codebeispiele für REPL:
+
+1.
 int add(int a,int b){return a+b;}
 int x=5;
 int y=7;
 print_int(add(x,y));
 
-
-
-.\cmake-build-debug\Mini_Projekt_C___Interpreter.exe .\tests\pos\GOLD01_basics.cpp
+2.

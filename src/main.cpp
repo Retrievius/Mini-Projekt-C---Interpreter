@@ -118,7 +118,7 @@ static bool isIncomplete(const std::vector<std::string>& errs) {
 // -------------------- Running a program (capture output) --------------------
 
 struct RunResult {
-    int exitCode = 0;              // 0 ok, 1 error
+    int exitCode = 0;
     std::string stdoutText;
     std::string stderrText;
 };
@@ -294,8 +294,6 @@ static void runRepl(Interpreter& interp) {
 
         cont = false;
         buffer.clear();
-
-        // optional semantic: REPL define-before-use (your checker must enforce that)
 
         SemanticChecker sem;
         sem.checkProgram(chunk);
