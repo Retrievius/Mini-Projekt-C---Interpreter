@@ -23,9 +23,35 @@ Für bestimmte Aufgabe:
 Codebeispiele für REPL:
 
 1.
-int add(int a,int b){return a+b;}
-int x=5;
-int y=7;
-print_int(add(x,y));
+int a = 5;
+int b = 7;
+print_int(a + b);
 
 2.
+int i = 0;
+int sum = 0;
+
+while (i < 5) {
+  if (i % 2 == 0) {
+    sum = sum + i;
+  }
+  i = i + 1;
+}
+
+print_int(sum);
+
+3.
+int add(int a, int b) {
+    return a + b;
+}
+
+print_int(add(6, 7));
+
+4.
+class Point {
+    int x;
+    int y;
+};
+
+Point p;
+print_string("ok");

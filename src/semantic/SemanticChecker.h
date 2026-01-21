@@ -8,9 +8,14 @@
 #include "SymbolTable.h"
 #include "Type.h"
 
+
+
+
 class SemanticChecker : public ASTVisitor {
 public:
     SymbolTable symbols;
+
+    bool builtinsDeclared = false;
 
     // --- last expression result ---
     Type lastType = Type::Void();
