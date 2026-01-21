@@ -7,9 +7,9 @@
 // Speicherplatz mit Value als Inhalt
 struct Cell {
     Value value;
-    Cell* alias = nullptr;   // ← NEU
+    Cell* alias = nullptr;
 
-    std::string staticType; // NEU: z.B. "Base" bei Base& rb
+    std::string staticType;
 
     Value& get() {
         if (alias) return alias->get();

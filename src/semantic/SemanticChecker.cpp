@@ -7,8 +7,10 @@ void SemanticChecker::checkProgram(Program* p) {
     // 1) class table first (fields/methods/ctors)
     buildClassTable(p);
 
-    // 2) declare builtins
-    declareBuiltins();
+    if (!builtinsDeclared) {
+        declareBuiltins();
+        builtinsDeclared = true;
+    }
 
     // 3) declare free functions (signatures) first so calls work
     for (auto* fn : p->functions) {
@@ -137,7 +139,6 @@ const SemanticChecker::MethodSig* SemanticChecker::lookupCtor(
 // build class table from AST
 // --------------------
 void SemanticChecker::buildClassTable(Program* p) {
-    classTable.clear();
 
     // first pass: register class names + base
     for (auto* c : p->classes) {
@@ -284,7 +285,7 @@ void SemanticChecker::visit(BinaryExpr* e) {
         case BinaryExpr::BinaryOp::Le:
         case BinaryExpr::BinaryOp::Gt:
         case BinaryExpr::BinaryOp::Ge:
-            require(l.equals(Type::Int()), "<,<=,>,>= require int");
+            require(l.equals(Type::Int()) || l.equals(Type::Char()), "<,<=,>,>= require int");
             lastType = Type::Bool();
             return;
 

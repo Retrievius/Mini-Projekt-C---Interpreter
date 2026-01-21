@@ -6,12 +6,12 @@ using namespace cppParser;
 
     for (auto* child : ctx->children) {
 
-        // Statement?
+        // Statement
         if (auto* stmtCtx = dynamic_cast<cppParser::StmtContext*>(child)) {
             prog->statements.push_back(visitStmt(stmtCtx));
         }
 
-        // Top-Level Decl?
+        // Top-Level Decl
         else if (auto* declCtx = dynamic_cast<cppParser::TopLevelDeclContext*>(child)) {
 
             if (declCtx->fnDecl()) {
@@ -154,13 +154,13 @@ Expr* ASTBuilder::visitPrimaryExpr(cppParser::PrimaryExprContext* ctx) {
             return new BoolLiteral(false);
 
         if (lit->CHAR()) {
-            std::string t = lit->CHAR()->getText(); // 'A'
+            std::string t = lit->CHAR()->getText();
             char c = t[1];
             return new CharLiteral(c);
         }
 
         if (lit->STRING()) {
-            std::string t = lit->STRING()->getText(); // "foo"
+            std::string t = lit->STRING()->getText();
             std::string s = t.substr(1, t.size() - 2);
             return new StringLiteral(s);
         }

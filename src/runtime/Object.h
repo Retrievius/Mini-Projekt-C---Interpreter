@@ -5,6 +5,6 @@
 #include "Cell.h"
 
 struct Object {
-    std::string dynamicClass; // "Der"
+    std::string dynamicClass;
     std::unordered_map<std::string, Cell*> fields;
 };
