@@ -1,78 +1,13 @@
-Projektübersicht
+Projektübersicht:
+Kleiner Interpreter für eine C++ ähnliche Sprache
 
-Team
+Team:
+Arne Schreiber, Magd Alassmy und Linus Martinschledde
+Projektbeschreibung:
+„Das Projekt implementiert einen vereinfachten C++-Interpreter mit ANTLR-Parser, eigenem AST, Semantikprüfung und Laufzeit-Interpreter. Zusätzlich bietet das System ein REPL mit Session-Scope, sowie einen integrierten Test-Runner zur Ausführung von Positiv- und Negativtests inklusive EXPECT-Ausgabevergleich.“
 
-Projektverlauf:
-  Person A:
-    02.01: 
-    03.01: 
-    04.01:
-    05.01:
-    06.01:
-    07.01:
-    08.01:
-    09.01:
-    10.01:
-    11.01:
-    12.01:
-    13.01:
-    14.01:
-    15.01:
-    16.01:
-    17.01:
-    18.01:
-    19.01:
-    20.01:
+Ausführung:
+Zum Ausführen main Starten oder --all für alle Tests.
 
-  Person B:
-    02.01: 
-    03.01: 
-    04.01:
-    05.01:
-    06.01:
-    07.01:
-    08.01:
-    09.01:
-    10.01:
-    11.01:
-    12.01:
-    13.01:
-    14.01:
-    15.01:
-    16.01:
-    17.01:
-    18.01:
-    19.01:
-    20.01:
 
-  Person C:
-    02.01: -
-    03.01: -
-    04.01: 2 und 3 nachgeholt, Interpreter Grundgerüst erstellt
-    05.01: Interpreter Skelett fertig
-    06.01:
-    07.01:
-    08.01:
-    09.01:
-    10.01:
-    11.01:
-    12.01:
-    13.01:
-    14.01:
-    15.01:
-    16.01:
-    17.01:
-    18.01:
-    19.01:
-    20.01:
-
-Projektbeschreibung
-
-Projekt-Architektur
-
-Projektstruktur
-
-Ausführung
-
-Beispiele
 
